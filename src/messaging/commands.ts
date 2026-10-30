@@ -90,6 +90,13 @@ export interface Commands {
   "pomodoro.stop": { in: Record<string, never>; out: null };
   "pomodoro.skip": { in: Record<string, never>; out: PomodoroState | null };
   "op.status": { in: { windowId: number }; out: SwitchOp | null };
+  /** Removes entries from `recovery:pending` (all when `opIds` is omitted). Returns how many. */
+  "recovery.dismiss": { in: { opIds?: string[] }; out: number };
+  /**
+   * Deletes quarantined records (`corrupt:*`) and/or the `import:failed` record. `keys` omitted
+   * = every `corrupt:*` key. Any other key is rejected. Returns how many keys were removed.
+   */
+  "system.purgeCorrupt": { in: { keys?: string[] }; out: number };
   "system.ping": {
     in: Record<string, never>;
     /** `degraded`: init failed (read-only mode, retried on the next message); `error` says why. */

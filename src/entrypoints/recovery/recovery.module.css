@@ -1,0 +1,122 @@
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-5) 64px;
+}
+.top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+}
+.top h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+.lead {
+  color: var(--fg-muted);
+}
+.card {
+  margin-bottom: var(--sp-5);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.cardHead h2 {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+}
+.muted {
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+}
+.list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.grow {
+  flex: 1;
+  min-width: 200px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.details {
+  flex-basis: 100%;
+}
+.details summary {
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.tabs {
+  margin: var(--sp-2) 0 0;
+  padding-left: var(--sp-5);
+  max-height: 260px;
+  overflow: auto;
+  font-size: var(--fs-sm);
+}
+.tabs li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.url {
+  color: var(--fg-subtle);
+}
+.notice {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: var(--fs-sm);
+}
+.warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.err {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.pre {
+  max-height: 200px;
+  overflow: auto;
+  font: var(--fs-xs) / 1.4 var(--font-mono);
+  white-space: pre-wrap;
+}
+.fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin: 0 0 var(--sp-3);
+  padding: 0;
+  border: 0;
+}
+.fieldset legend {
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}

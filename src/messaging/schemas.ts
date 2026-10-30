@@ -90,5 +90,22 @@ export const PayloadSchemas = {
   "pomodoro.stop": Empty,
   "pomodoro.skip": Empty,
   "op.status": v.object({ windowId: WindowId }),
+  "recovery.dismiss": v.object({
+    opIds: v.optional(v.array(v.pipe(v.string(), v.maxLength(200)))),
+  }),
+  "system.purgeCorrupt": v.object({
+    keys: v.optional(
+      v.array(
+        v.pipe(
+          v.string(),
+          v.maxLength(1000),
+          v.check(
+            (k: string) => k.startsWith("corrupt:") || k === "import:failed",
+            "only corrupt:* keys and import:failed may be purged",
+          ),
+        ),
+      ),
+    ),
+  }),
   "system.ping": Empty,
 } satisfies Record<CommandType, v.GenericSchema>;

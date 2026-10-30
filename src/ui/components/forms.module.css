@@ -1,0 +1,55 @@
+.form {
+  display: grid;
+  gap: var(--sp-3);
+  margin: var(--sp-1) var(--sp-4) var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+.err {
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: var(--sp-1);
+}
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  background: var(--sw);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  cursor: pointer;
+}
+.swatch[aria-checked="true"] {
+  box-shadow: 0 0 0 2px var(--fg);
+}
+.swatch:focus-visible {
+  outline-offset: 2px;
+  border-radius: 50%;
+}

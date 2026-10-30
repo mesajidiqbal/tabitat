@@ -1,0 +1,33 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  height: 540px;
+  overflow: hidden;
+}
+.main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border);
+  scrollbar-gutter: stable;
+}
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 40px;
+  padding: 0 var(--sp-3);
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-right: auto;
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}

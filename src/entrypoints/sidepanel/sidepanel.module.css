@@ -1,0 +1,22 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+  height: 100vh;
+}
+.top {
+  border-bottom: 1px solid var(--border);
+}
+.main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}

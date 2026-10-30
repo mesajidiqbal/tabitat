@@ -17,6 +17,7 @@ import { captureUrl, classifyUrl, isBlankPageUrl, unwrapUrl } from "../core/ops/
 import { RpcError } from "../messaging/errors";
 import { PayloadSchemas } from "../messaging/schemas";
 import type { CommandRouter } from "./command-router";
+import { BG_PREFIX, BgKeys } from "./keys";
 import { Lane } from "./lanes";
 import { repairAlarms } from "./ready";
 import type { Services } from "./services";
@@ -437,6 +438,36 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
     S["op.status"],
     async (p) => engine.status(p.windowId) ?? (await repo.getOp(p.windowId)),
     () => [],
+  );
+
+  // ---------------------------------------------------------------- recovery screen
+  router.register(
+    "recovery.dismiss",
+    S["recovery.dismiss"],
+    async (p) => {
+      const pending = await repo.getRecoveryPending();
+      const drop = p.opIds === undefined ? null : new Set(p.opIds);
+      const keep = drop === null ? [] : pending.entries.filter((e) => !drop.has(e.opId));
+      const removed = pending.entries.length - keep.length;
+      if (removed === 0) return 0;
+      if (keep.length === 0) await repo.remove(BgKeys.recoveryPending);
+      else await repo.setMany({ [BgKeys.recoveryPending]: { entries: keep } });
+      return removed;
+    },
+    // abandon() appends entries from inside a switch's lanes: exclusive (rare, user-initiated).
+    () => [Lane.global],
+  );
+
+  router.register(
+    "system.purgeCorrupt",
+    S["system.purgeCorrupt"],
+    async (p) => {
+      const keys = p.keys ?? Object.keys(await repo.listRaw(BG_PREFIX.corrupt));
+      if (keys.length === 0) return 0;
+      await repo.remove([...new Set(keys)]);
+      return new Set(keys).size;
+    },
+    () => [Lane.global],
   );
 
   router.register(

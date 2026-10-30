@@ -1,45 +1,195 @@
+/*
+ * Design tokens (UI-SPEC). Light is the default; dark applies with prefers-color-scheme unless
+ * the page has data-theme="light", or always with data-theme="dark" (src/ui/theme.ts sets it
+ * from settings.theme). Workspace / tab-group colours map Chrome's Color names to --ws-<name>.
+ */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --lh: 1.4;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 24px;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --row-h: 30px;
+  --icon: 16px;
+  --dur: 120ms;
+
   --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #6b7280;
-  --accent: #3b82f6;
-  --border: #e5e7eb;
+  --bg-elev: #ffffff;
+  --bg-sunken: #f5f6f8;
+  --bg-hover: #eef0f3;
+  --bg-active: #e3e8f2;
+  --fg: #1b1d21;
+  --fg-muted: #5c6370;
+  --fg-subtle: #8a909c;
+  --border: #e3e5e9;
+  --border-strong: #c9cdd4;
+  --accent: #2f6fde;
+  --accent-hover: #255cc0;
+  --accent-fg: #ffffff;
+  --accent-soft: #e6eefc;
+  --danger: #c5221f;
+  --danger-soft: #fce8e6;
+  --warn-fg: #7a4b00;
+  --warn-bg: #fff4d6;
+  --ok: #1e7e34;
+  --focus: #2f6fde;
+  --mark-bg: #ffe58a;
+  --mark-fg: inherit;
+  --shadow: 0 4px 16px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.08);
+
+  --ws-grey: #5f6368;
+  --ws-blue: #1a73e8;
+  --ws-red: #d93025;
+  --ws-yellow: #e8a600;
+  --ws-green: #1e8e3e;
+  --ws-pink: #d01884;
+  --ws-purple: #9334e6;
+  --ws-cyan: #00838f;
+  --ws-orange: #e8710a;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #14161a;
-    --fg: #e8e8ea;
-    --muted: #9ca3af;
-    --accent: #60a5fa;
-    --border: #2a2d33;
-  }
-}
+    color-scheme: dark;
+    --bg: #17191d;
+    --bg-elev: #212329;
+    --bg-sunken: #121417;
+    --bg-hover: #262931;
+    --bg-active: #2c3442;
+    --fg: #e7e9ec;
+    --fg-muted: #a3a9b4;
+    --fg-subtle: #7b828e;
+    --border: #2b2e35;
+    --border-strong: #3c414b;
+    --accent: #7aa7ff;
+    --accent-hover: #9bbcff;
+    --accent-fg: #0d1526;
+    --accent-soft: #1f2b42;
+    --danger: #f28b82;
+    --danger-soft: #3a2220;
+    --warn-fg: #fdd663;
+    --warn-bg: #3a3018;
+    --ok: #81c995;
+    --focus: #7aa7ff;
+    --mark-bg: #6b5a12;
+    --mark-fg: #fff6d0;
+    --shadow: 0 4px 16px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.4);
 
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #ffffff;
-  --fg: #1a1a1a;
-  --muted: #6b7280;
-  --accent: #3b82f6;
-  --border: #e5e7eb;
+    --ws-grey: #bdc1c6;
+    --ws-blue: #8ab4f8;
+    --ws-red: #f28b82;
+    --ws-yellow: #fdd663;
+    --ws-green: #81c995;
+    --ws-pink: #ff8bcb;
+    --ws-purple: #c58af9;
+    --ws-cyan: #78d9ec;
+    --ws-orange: #fcad70;
+  }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #14161a;
-  --fg: #e8e8ea;
-  --muted: #9ca3af;
-  --accent: #60a5fa;
-  --border: #2a2d33;
+  --bg: #17191d;
+  --bg-elev: #212329;
+  --bg-sunken: #121417;
+  --bg-hover: #262931;
+  --bg-active: #2c3442;
+  --fg: #e7e9ec;
+  --fg-muted: #a3a9b4;
+  --fg-subtle: #7b828e;
+  --border: #2b2e35;
+  --border-strong: #3c414b;
+  --accent: #7aa7ff;
+  --accent-hover: #9bbcff;
+  --accent-fg: #0d1526;
+  --accent-soft: #1f2b42;
+  --danger: #f28b82;
+  --danger-soft: #3a2220;
+  --warn-fg: #fdd663;
+  --warn-bg: #3a3018;
+  --ok: #81c995;
+  --focus: #7aa7ff;
+  --mark-bg: #6b5a12;
+  --mark-fg: #fff6d0;
+  --shadow: 0 4px 16px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.4);
+
+  --ws-grey: #bdc1c6;
+  --ws-blue: #8ab4f8;
+  --ws-red: #f28b82;
+  --ws-yellow: #fdd663;
+  --ws-green: #81c995;
+  --ws-pink: #ff8bcb;
+  --ws-purple: #c58af9;
+  --ws-cyan: #78d9ec;
+  --ws-orange: #fcad70;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
 body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font:
-    14px / 1.4 system-ui,
-    sans-serif;
+  font: var(--fs) / var(--lh) var(--font);
+  -webkit-font-smoothing: antialiased;
 }
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+mark {
+  background: var(--mark-bg);
+  color: var(--mark-fg);
+  border-radius: 2px;
+}
+
+kbd {
+  font-family: var(--font-mono);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Motion: every transition/animation is declared under prefers-reduced-motion: no-preference. */

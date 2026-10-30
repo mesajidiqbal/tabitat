@@ -1,4 +1,684 @@
 {
-  "appName": { "message": "Tabitat" },
-  "appDescription": { "message": "Workspaces for your tabs. Local-only, no network." }
+  "appName": {
+    "message": "Tabitat"
+  },
+  "appDescription": {
+    "message": "Workspaces for your tabs. Local-only, no network."
+  },
+  "currentWorkspaceMenu": {
+    "message": "Workspace menu: $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "noWorkspace": {
+    "message": "No workspace"
+  },
+  "unsorted": {
+    "message": "Unsorted"
+  },
+  "newWorkspace": {
+    "message": "New workspace"
+  },
+  "openDashboard": {
+    "message": "Open dashboard"
+  },
+  "recoveryAndBackup": {
+    "message": "Recovery & backup"
+  },
+  "focusSearch": {
+    "message": "Search (/)"
+  },
+  "openSidePanel": {
+    "message": "Open side panel (s)"
+  },
+  "openSettings": {
+    "message": "Settings"
+  },
+  "searchLabel": {
+    "message": "Search tabs, workspaces and links"
+  },
+  "searchPlaceholder": {
+    "message": "Search tabs, workspaces, links…"
+  },
+  "clearSearch": {
+    "message": "Clear search"
+  },
+  "searchResults": {
+    "message": "Search results"
+  },
+  "noResults": {
+    "message": "No matches"
+  },
+  "noResultsHint": {
+    "message": "Try a word from the page title or address."
+  },
+  "kindWorkspace": {
+    "message": "workspace"
+  },
+  "kindTab": {
+    "message": "tab"
+  },
+  "kindSaved": {
+    "message": "saved"
+  },
+  "kindLink": {
+    "message": "link"
+  },
+  "kindClosed": {
+    "message": "closed"
+  },
+  "kindNote": {
+    "message": "note"
+  },
+  "kindTodos": {
+    "message": "todo list"
+  },
+  "workspaces": {
+    "message": "Workspaces"
+  },
+  "new": {
+    "message": "New"
+  },
+  "workspaceName": {
+    "message": "Workspace name"
+  },
+  "color": {
+    "message": "Color"
+  },
+  "color_grey": {
+    "message": "Grey"
+  },
+  "color_blue": {
+    "message": "Blue"
+  },
+  "color_red": {
+    "message": "Red"
+  },
+  "color_yellow": {
+    "message": "Yellow"
+  },
+  "color_green": {
+    "message": "Green"
+  },
+  "color_pink": {
+    "message": "Pink"
+  },
+  "color_purple": {
+    "message": "Purple"
+  },
+  "color_cyan": {
+    "message": "Cyan"
+  },
+  "color_orange": {
+    "message": "Orange"
+  },
+  "startEmpty": {
+    "message": "Start empty"
+  },
+  "cancel": {
+    "message": "Cancel"
+  },
+  "create": {
+    "message": "Create"
+  },
+  "errNameRequired": {
+    "message": "Enter a name."
+  },
+  "workspaceActions": {
+    "message": "Actions for $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "openInNewWindow": {
+    "message": "Open in new window"
+  },
+  "rename": {
+    "message": "Rename"
+  },
+  "nameWorkspace": {
+    "message": "Name this workspace"
+  },
+  "delete": {
+    "message": "Delete"
+  },
+  "activeHere": {
+    "message": "active in this window"
+  },
+  "openElsewhere": {
+    "message": "other window"
+  },
+  "tabsOne": {
+    "message": "$COUNT$ tab",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "tabsMany": {
+    "message": "$COUNT$ tabs",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noWorkspacesTitle": {
+    "message": "No workspaces yet"
+  },
+  "noWorkspacesHint": {
+    "message": "Create one from the tabs in this window with New (n)."
+  },
+  "switchingTo": {
+    "message": "Switching to $NAME$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "switchProgress": {
+    "message": "Switch progress"
+  },
+  "skippedOne": {
+    "message": "$COUNT$ tab could not be restored",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "skippedMany": {
+    "message": "$COUNT$ tabs could not be restored",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deletedWorkspace": {
+    "message": "Deleted “$NAME$”",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "undo": {
+    "message": "Undo"
+  },
+  "dismiss": {
+    "message": "Dismiss"
+  },
+  "errBusy": {
+    "message": "A switch is already running in this window. Try again in a moment."
+  },
+  "errConflict": {
+    "message": "That changed somewhere else (or is open in another window). Try again."
+  },
+  "errLimit": {
+    "message": "Limit reached: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "errNotFound": {
+    "message": "It no longer exists."
+  },
+  "errInvalid": {
+    "message": "Not allowed: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "errInternal": {
+    "message": "Something went wrong: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "tabsInWindow": {
+    "message": "Tabs in this window"
+  },
+  "closeTab": {
+    "message": "Close tab"
+  },
+  "parkTab": {
+    "message": "Park to saved links"
+  },
+  "parked": {
+    "message": "Parked “$TITLE$”",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinned": {
+    "message": "Pinned"
+  },
+  "suspended": {
+    "message": "suspended"
+  },
+  "suspendedHint": {
+    "message": "Not loaded yet (loads when you open it)"
+  },
+  "activeTab": {
+    "message": "(active tab)"
+  },
+  "unnamedGroup": {
+    "message": "Unnamed group"
+  },
+  "groupLabel": {
+    "message": "Group: $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "suspendOthers": {
+    "message": "Suspend others"
+  },
+  "suspendedOne": {
+    "message": "Suspended $COUNT$ tab",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "suspendedMany": {
+    "message": "Suspended $COUNT$ tabs",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDupesOne": {
+    "message": "Close $COUNT$ dupe",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "closeDupesMany": {
+    "message": "Close $COUNT$ dupes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "closedDupesOne": {
+    "message": "Closed $COUNT$ duplicate tab",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "closedDupesMany": {
+    "message": "Closed $COUNT$ duplicate tabs",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "savedLinks": {
+    "message": "Saved links"
+  },
+  "add": {
+    "message": "Add"
+  },
+  "addLink": {
+    "message": "Add link"
+  },
+  "linkUrl": {
+    "message": "Link address"
+  },
+  "linkTitle": {
+    "message": "Title (optional)"
+  },
+  "removeLink": {
+    "message": "Remove link"
+  },
+  "removedLink": {
+    "message": "Removed “$TITLE$”",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "noLinksHint": {
+    "message": "Park a tab (⇩) or add a link to keep it here without keeping it open."
+  },
+  "recentlyClosed": {
+    "message": "Recently closed"
+  },
+  "andMore": {
+    "message": "and $COUNT$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "recoveryAvailable": {
+    "message": "Recovery available"
+  },
+  "restoreEllipsis": {
+    "message": "Restore…"
+  },
+  "dashboardLink": {
+    "message": "Dashboard"
+  },
+  "recoveryTitle": {
+    "message": "Recovery & backup"
+  },
+  "recoveryLead": {
+    "message": "Everything here stays on this device."
+  },
+  "interruptedTitle": {
+    "message": "Interrupted switch"
+  },
+  "interruptedLead": {
+    "message": "A workspace switch could not finish. Nothing was deleted: the tabs it was opening are listed below, and the workspace you left was saved first."
+  },
+  "fromTo": {
+    "message": "$FROM$ → $TO$",
+    "placeholders": {
+      "from": {
+        "content": "$1"
+      },
+      "to": {
+        "content": "$2"
+      }
+    }
+  },
+  "missingWorkspace": {
+    "message": "deleted workspace ($ID$)",
+    "placeholders": {
+      "id": {
+        "content": "$1"
+      }
+    }
+  },
+  "stageReason": {
+    "message": "stopped at $STAGE$: $REASON$",
+    "placeholders": {
+      "stage": {
+        "content": "$1"
+      },
+      "reason": {
+        "content": "$2"
+      }
+    }
+  },
+  "openIncoming": {
+    "message": "Open incoming in new window"
+  },
+  "incomingTabs": {
+    "message": "Incoming tabs ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "outgoingTabs": {
+    "message": "Saved outgoing snapshot ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "nothingToOpen": {
+    "message": "None of these tabs can be opened in this browser."
+  },
+  "openedTabs": {
+    "message": "Opened $COUNT$ tabs in a new window.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "showTabs": {
+    "message": "Show $COUNT$ tabs",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "sessionsTitle": {
+    "message": "Session snapshots"
+  },
+  "sessionsLead": {
+    "message": "Tabitat saves every open window periodically and before each switch."
+  },
+  "snapshotNow": {
+    "message": "Snapshot now"
+  },
+  "snapshotTaken": {
+    "message": "Snapshot saved."
+  },
+  "exportJson": {
+    "message": "Export JSON"
+  },
+  "noSessions": {
+    "message": "No snapshots yet."
+  },
+  "restoreNewWindow": {
+    "message": "Restore into new window"
+  },
+  "restoredGeneration": {
+    "message": "Restored the snapshot from $TIME$.",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "windowsOne": {
+    "message": "$COUNT$ window",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "windowsMany": {
+    "message": "$COUNT$ windows",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "windowN": {
+    "message": "Window $N$",
+    "placeholders": {
+      "n": {
+        "content": "$1"
+      }
+    }
+  },
+  "quarantineTitle": {
+    "message": "Quarantined records"
+  },
+  "quarantineLead": {
+    "message": "Records that failed validation were set aside instead of being used. Download them before deleting."
+  },
+  "download": {
+    "message": "Download"
+  },
+  "confirmDeleteAll": {
+    "message": "Confirm delete all"
+  },
+  "deletedRecordsOne": {
+    "message": "Deleted $COUNT$ record.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deletedRecordsMany": {
+    "message": "Deleted $COUNT$ records.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "trashTitle": {
+    "message": "Trash"
+  },
+  "trashLead": {
+    "message": "Deleted items are kept for 30 days."
+  },
+  "trashEmpty": {
+    "message": "Trash is empty."
+  },
+  "emptyTrash": {
+    "message": "Empty trash"
+  },
+  "confirmEmptyTrash": {
+    "message": "Confirm empty trash"
+  },
+  "trashEmptied": {
+    "message": "Trash emptied."
+  },
+  "deletedAt": {
+    "message": "Deleted $TIME$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "restore": {
+    "message": "Restore"
+  },
+  "restored": {
+    "message": "Restored “$NAME$”.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "purge": {
+    "message": "Delete forever"
+  },
+  "confirmPurge": {
+    "message": "Confirm delete"
+  },
+  "purged": {
+    "message": "Deleted “$NAME$” forever.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "scopeGlobal": {
+    "message": "General"
+  },
+  "importTitle": {
+    "message": "Import backup"
+  },
+  "importMode": {
+    "message": "Mode"
+  },
+  "modeMerge": {
+    "message": "Merge: add workspaces from the file, keep everything you have"
+  },
+  "modeReplace": {
+    "message": "Replace: the file replaces your workspaces, notes, todos and quick links"
+  },
+  "chooseBackup": {
+    "message": "Backup file:"
+  },
+  "importNotJson": {
+    "message": "That file is not valid JSON."
+  },
+  "confirmMerge": {
+    "message": "Import “$FILE$” and add its contents to your data?",
+    "placeholders": {
+      "file": {
+        "content": "$1"
+      }
+    }
+  },
+  "confirmReplace": {
+    "message": "Replace your data with “$FILE$”? Your current workspaces, notes and todo lists are moved to the trash (kept 30 days), so this can be undone from the Trash section.",
+    "placeholders": {
+      "file": {
+        "content": "$1"
+      }
+    }
+  },
+  "importNow": {
+    "message": "Import"
+  },
+  "replaceNow": {
+    "message": "Replace my data"
+  },
+  "confirmReplaceNow": {
+    "message": "Confirm replace"
+  },
+  "importDone": {
+    "message": "Imported $WORKSPACES$ workspaces, $TODOS$ todo lists, $NOTES$ notes, $QUICKLINKS$ quick links.",
+    "placeholders": {
+      "workspaces": {
+        "content": "$1"
+      },
+      "todos": {
+        "content": "$2"
+      },
+      "notes": {
+        "content": "$3"
+      },
+      "quicklinks": {
+        "content": "$4"
+      }
+    }
+  },
+  "importFailedTitle": {
+    "message": "A previous import could not be applied"
+  },
+  "importPartial": {
+    "message": "It was partly applied ($COUNT$ records).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unsortedOther": {
+    "message": "Unsorted (another window)"
+  },
+  "startEmptyHint": {
+    "message": "Create an empty workspace and keep this window's tabs where they are"
+  }
 }

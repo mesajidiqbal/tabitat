@@ -1,0 +1,302 @@
+/**
+ * Signals read model shared by popup, side panel and recovery (UI-SPEC "Shared read model").
+ * Reads: storage.local (one get at start + one onChanged listener) and chrome.tabs/tabGroups for
+ * the current window's live tabs. Never writes storage: every mutation goes through `send()`
+ * (ADR-003). `initStore()` sets up all subscriptions once per page; `useStore()` calls it.
+ */
+import { batch, computed, effect, type Signal, signal } from "@preact/signals";
+import { useEffect } from "preact/hooks";
+import type { RecoveryPending } from "@/background/keys";
+import type {
+  ClosedTab,
+  Settings,
+  SwitchOp,
+  Trash,
+  WindowState,
+  WorkspaceMeta,
+  WorkspaceTabs,
+} from "@/core/model/types";
+import { DEFAULT_SETTINGS, KEY_PREFIX, Keys } from "@/core/model/types";
+import { send } from "@/messaging/client";
+import { mapGroup, mapTab, type UiGroup, type UiTab } from "./tabs";
+import { applyTheme } from "./theme";
+
+export type { UiGroup, UiTab } from "./tabs";
+
+/** Background-owned keys (src/background/keys.ts BgKeys; not imported: it pulls in valibot). */
+export const RECOVERY_KEY = "recovery:pending";
+export const IMPORT_FAILED_KEY = "import:failed";
+
+const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null;
+const asMeta = (x: unknown) =>
+  isObj(x) && typeof x.id === "string" && typeof x.name === "string" && Array.isArray(x.resources)
+    ? (x as unknown as WorkspaceMeta)
+    : null;
+const asTabs = (x: unknown) =>
+  isObj(x) && Array.isArray(x.tabs) ? (x as unknown as WorkspaceTabs) : null;
+const asState = (x: unknown) =>
+  isObj(x) && "activeWorkspaceId" in x ? (x as unknown as WindowState) : null;
+const asOp = (x: unknown) =>
+  isObj(x) && typeof x.to === "string" && Array.isArray(x.incoming)
+    ? (x as unknown as SwitchOp)
+    : null;
+const asIds = (x: unknown) => (Array.isArray(x) ? x.filter((i) => typeof i === "string") : []);
+
+export const store = {
+  windowId: signal<number | null>(null),
+  index: signal<string[]>([]),
+  metas: signal<Record<string, WorkspaceMeta>>({}),
+  wsTabs: signal<Record<string, WorkspaceTabs>>({}),
+  windowStates: signal<Record<string, WindowState>>({}),
+  liveWindowIds: signal<number[]>([]),
+  liveTabs: signal<UiTab[]>([]),
+  groups: signal<Record<number, UiGroup>>({}),
+  opRecord: signal<SwitchOp | null>(null),
+  opLive: signal<SwitchOp | null>(null),
+  /** Set while a workspace.switch request from this page is in flight. */
+  pendingSwitch: signal<{ to: string } | null>(null),
+  recovery: signal<RecoveryPending | null>(null),
+  importFailed: signal<Record<string, unknown> | null>(null),
+  settings: signal<Settings>(DEFAULT_SETTINGS),
+  recentlyClosed: signal<ClosedTab[]>([]),
+  trash: signal<Trash>({ items: [] }),
+  ready: signal(false),
+};
+
+export const activeWorkspaceId = computed(() => {
+  const w = store.windowId.value;
+  return w === null ? null : (store.windowStates.value[w]?.activeWorkspaceId ?? null);
+});
+export const activeMeta = computed(() => {
+  const id = activeWorkspaceId.value;
+  return id ? (store.metas.value[id] ?? null) : null;
+});
+/** Workspace id -> live window it is open in (stale window states are ignored). */
+export const owners = computed(() => {
+  const out: Record<string, number> = {};
+  const live = new Set(store.liveWindowIds.value);
+  for (const [w, st] of Object.entries(store.windowStates.value)) {
+    if (st.activeWorkspaceId && live.has(Number(w))) out[st.activeWorkspaceId] = Number(w);
+  }
+  return out;
+});
+/** Ordered workspaces: the current window's active one first, then ws:index order. */
+export const workspaces = computed(() => {
+  const metas = store.metas.value;
+  const list = store.index.value.map((id) => metas[id]).filter((m): m is WorkspaceMeta => !!m);
+  const active = activeWorkspaceId.value;
+  const i = list.findIndex((m) => m.id === active);
+  if (i > 0) list.unshift(...list.splice(i, 1));
+  return list;
+});
+export const op = computed(() => store.opLive.value ?? store.opRecord.value);
+export const busy = computed(() => op.value !== null || store.pendingSwitch.value !== null);
+export const recoveryAvailable = computed(() => {
+  const w = store.windowId.value;
+  return (
+    (store.recovery.value?.entries.length ?? 0) > 0 ||
+    store.importFailed.value !== null ||
+    (w !== null && store.windowStates.value[w]?.provisional === true)
+  );
+});
+
+const setKey = <T>(sig: Signal<Record<string, T>>, k: string, v: T | null) => {
+  const next = { ...sig.peek() };
+  if (v === null) delete next[k];
+  else next[k] = v;
+  sig.value = next;
+};
+
+function applyChange(key: string, raw: unknown): void {
+  const s = store;
+  if (key === Keys.wsIndex) {
+    const ids = asIds(raw);
+    s.index.value = ids;
+    const missing = ids.filter((id) => !s.metas.peek()[id]);
+    if (missing.length > 0) void loadWorkspaces(missing);
+  } else if (key.startsWith(KEY_PREFIX.wsMeta)) setKey(s.metas, key.slice(8), asMeta(raw));
+  else if (key.startsWith(KEY_PREFIX.wsTabs)) setKey(s.wsTabs, key.slice(8), asTabs(raw));
+  else if (key.startsWith(KEY_PREFIX.window)) setKey(s.windowStates, key.slice(8), asState(raw));
+  else if (key === Keys.opSwitch(s.windowId.peek() ?? -99)) s.opRecord.value = asOp(raw);
+  else if (key === Keys.settings)
+    s.settings.value = isObj(raw) ? (raw as unknown as Settings) : DEFAULT_SETTINGS;
+  else if (key === Keys.recentlyClosed) s.recentlyClosed.value = Array.isArray(raw) ? raw : [];
+  else if (key === Keys.trash)
+    s.trash.value =
+      isObj(raw) && Array.isArray(raw.items) ? (raw as unknown as Trash) : { items: [] };
+  else if (key === RECOVERY_KEY)
+    s.recovery.value =
+      isObj(raw) && Array.isArray(raw.entries) ? (raw as unknown as RecoveryPending) : null;
+  else if (key === IMPORT_FAILED_KEY) s.importFailed.value = isObj(raw) ? raw : null;
+}
+
+async function loadWorkspaces(ids: string[]): Promise<void> {
+  const res = await chrome.storage.local.get(
+    ids.flatMap((id) => [Keys.wsMeta(id), Keys.wsTabs(id)]),
+  );
+  batch(() => {
+    for (const [k, v] of Object.entries(res)) applyChange(k, v);
+  });
+}
+
+async function resolveWindowId(): Promise<number | null> {
+  const fixed = Number(new URLSearchParams(location.search).get("window"));
+  if (Number.isInteger(fixed) && fixed > 0) return fixed;
+  const w = await chrome.windows.getCurrent().catch(() => null);
+  return w?.id ?? null;
+}
+
+let tabTimer: ReturnType<typeof setTimeout> | undefined;
+async function refreshTabs(): Promise<void> {
+  const w = store.windowId.peek();
+  if (w === null) return;
+  const base = chrome.runtime.getURL("/suspended.html");
+  const [tabs, groups] = await Promise.all([
+    chrome.tabs.query({ windowId: w }).catch(() => []),
+    chrome.tabGroups?.query({ windowId: w }).catch(() => []) ?? Promise.resolve([]),
+  ]);
+  if (store.windowId.peek() !== w) return;
+  batch(() => {
+    store.liveTabs.value = tabs.map((t) => mapTab(t, base)).sort((a, b) => a.index - b.index);
+    store.groups.value = Object.fromEntries(groups.map((g) => [g.id, mapGroup(g)]));
+  });
+}
+export function scheduleTabs(delay = 30): void {
+  clearTimeout(tabTimer);
+  tabTimer = setTimeout(() => void refreshTabs(), delay);
+}
+
+/** Loads window-scoped records for `w` and makes it the current window. */
+async function selectWindow(w: number | null): Promise<void> {
+  store.windowId.value = w;
+  store.opLive.value = null;
+  if (w === null) return;
+  const res = await chrome.storage.local.get([Keys.window(w), Keys.opSwitch(w)]);
+  batch(() => {
+    setKey(store.windowStates, String(w), asState(res[Keys.window(w)]));
+    store.opRecord.value = asOp(res[Keys.opSwitch(w)]);
+  });
+  await refreshTabs();
+}
+
+let polling = false;
+/** Polls op.status every 100 ms while an op exists or a switch was just requested. One chain. */
+function ensurePolling(): void {
+  if (polling) return;
+  polling = true;
+  void poll();
+}
+async function poll(): Promise<void> {
+  const w = store.windowId.peek();
+  if (w === null) {
+    polling = false;
+    return;
+  }
+  try {
+    store.opLive.value = await send("op.status", { windowId: w });
+  } catch {
+    store.opLive.value = null;
+  }
+  const keep =
+    store.opLive.peek() !== null ||
+    store.opRecord.peek() !== null ||
+    store.pendingSwitch.peek() !== null;
+  if (keep) setTimeout(() => void poll(), 100);
+  else polling = false;
+}
+
+let started: Promise<void> | null = null;
+export function initStore(): Promise<void> {
+  started ??= start();
+  return started;
+}
+
+async function start(): Promise<void> {
+  // Listen before reading so no change is lost; changes that arrive during the initial reads
+  // are applied after them (newer wins).
+  let buffered: Array<[string, unknown]> | null = [];
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    const list = Object.entries(changes).map(([k, c]): [string, unknown] => [k, c.newValue]);
+    if (buffered) buffered.push(...list);
+    else
+      batch(() => {
+        for (const [k, v] of list) applyChange(k, v);
+      });
+  });
+  const first = chrome.storage.local.get([
+    Keys.wsIndex,
+    Keys.settings,
+    Keys.recentlyClosed,
+    Keys.trash,
+    RECOVERY_KEY,
+    IMPORT_FAILED_KEY,
+  ]);
+  const [w, wins, base] = await Promise.all([
+    resolveWindowId(),
+    chrome.windows.getAll({ windowTypes: ["normal"] }).catch(() => []),
+    first,
+  ]);
+  const winIds = wins.map((x) => x.id).filter((x): x is number => typeof x === "number");
+  const ids = asIds(base[Keys.wsIndex]);
+  const keys = [
+    ...ids.flatMap((id) => [Keys.wsMeta(id), Keys.wsTabs(id)]),
+    ...winIds.map(Keys.window),
+  ];
+  const [rest] = await Promise.all([chrome.storage.local.get(keys), selectWindow(w)]);
+  batch(() => {
+    store.liveWindowIds.value = winIds;
+    // Records before the index, so the index finds every workspace already loaded.
+    for (const [k, v] of Object.entries(rest)) applyChange(k, v);
+    for (const [k, v] of Object.entries(base)) applyChange(k, v);
+    for (const [k, v] of buffered ?? []) applyChange(k, v);
+    buffered = null;
+    store.ready.value = true;
+  });
+  subscribe();
+}
+
+function subscribe(): void {
+  const mine = (wid: number | undefined) => wid === store.windowId.peek();
+  const any = () => scheduleTabs();
+  chrome.tabs.onCreated.addListener((t) => mine(t.windowId) && any());
+  chrome.tabs.onUpdated.addListener((_id, _c, t) => mine(t.windowId) && any());
+  chrome.tabs.onRemoved.addListener((_id, info) => mine(info.windowId) && any());
+  chrome.tabs.onMoved.addListener((_id, info) => mine(info.windowId) && any());
+  chrome.tabs.onActivated.addListener((info) => mine(info.windowId) && any());
+  chrome.tabs.onAttached.addListener((_id, info) => mine(info.newWindowId) && any());
+  chrome.tabs.onDetached.addListener((_id, info) => mine(info.oldWindowId) && any());
+  chrome.tabs.onReplaced.addListener(any);
+  if (chrome.tabGroups) {
+    chrome.tabGroups.onCreated.addListener(any);
+    chrome.tabGroups.onUpdated.addListener(any);
+    chrome.tabGroups.onRemoved.addListener(any);
+  }
+  const fixed = new URLSearchParams(location.search).has("window");
+  chrome.windows.onFocusChanged.addListener(() => {
+    if (fixed) return;
+    void resolveWindowId().then((w) => {
+      if (w !== store.windowId.peek()) void selectWindow(w);
+    });
+  });
+  chrome.windows.onCreated.addListener((win) => {
+    if (win.id === undefined) return;
+    store.liveWindowIds.value = [...store.liveWindowIds.peek(), win.id];
+  });
+  chrome.windows.onRemoved.addListener((id) => {
+    store.liveWindowIds.value = store.liveWindowIds.peek().filter((x) => x !== id);
+  });
+  effect(() => applyTheme(store.settings.value.theme));
+  effect(() => {
+    const need = store.opRecord.value !== null || store.pendingSwitch.value !== null;
+    if (need) ensurePolling();
+  });
+}
+
+/** Sets up the read model once per page; components then read the signals directly. */
+export function useStore(): typeof store {
+  useEffect(() => {
+    void initStore();
+  }, []);
+  return store;
+}
