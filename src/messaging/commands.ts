@@ -23,7 +23,14 @@ export type RpcErrorCode = "conflict" | "busy" | "not_found" | "invalid" | "limi
 
 export type Envelope<T> =
   | { ok: true; value: T }
-  | { ok: false; code: RpcErrorCode; message: string; retryable: boolean };
+  | {
+      ok: false;
+      code: RpcErrorCode;
+      message: string;
+      retryable: boolean;
+      /** Optional structured detail, e.g. `{ partial: true, applied: [...] }` for an import. */
+      details?: Record<string, unknown>;
+    };
 
 export interface ImportReport {
   workspaces: number;
@@ -50,7 +57,11 @@ export interface Commands {
   "workspace.delete": { in: { id: WorkspaceId }; out: { trashId: string } };
   "workspace.switch": {
     in: { windowId: number; workspaceId: WorkspaceId };
-    out: { skipped: SavedTab[] };
+    /**
+     * `possibleDuplicates`: directly created tabs (chrome://, our own pages) that may have been
+     * created twice after a worker restart; both copies are left open (never auto-closed).
+     */
+    out: { skipped: SavedTab[]; possibleDuplicates?: SavedTab[] };
   };
   "workspace.open": { in: { workspaceId: WorkspaceId }; out: { windowId: number } };
   "workspace.next": {

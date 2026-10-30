@@ -39,6 +39,12 @@ export interface LastKnownWindow {
 export interface SwitchClosed {
   ids: number[];
   at: number;
+  /**
+   * Closed tab id -> where its content was saved (workspace + SavedTab id). A navigation that
+   * lands between the close-time revalidation and the removal is reconciled from the
+   * last-known copy when the removal event arrives.
+   */
+  saved?: Record<string, { ws: string; sid: string }>;
 }
 
 export interface RecoveryEntry {

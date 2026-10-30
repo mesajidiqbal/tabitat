@@ -20,13 +20,22 @@ export class RpcError extends Error {
     readonly code: RpcErrorCode,
     message: string,
     retryable?: boolean,
+    /** Optional structured detail (e.g. a partially applied import's keys). */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.retryable = retryable ?? RETRYABLE[code];
   }
 
   toEnvelope(): Envelope<never> {
-    return { ok: false, code: this.code, message: this.message, retryable: this.retryable };
+    const env: Envelope<never> = {
+      ok: false,
+      code: this.code,
+      message: this.message,
+      retryable: this.retryable,
+    };
+    if (this.details) env.details = this.details;
+    return env;
   }
 }
 

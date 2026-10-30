@@ -10,7 +10,7 @@
  *    creates its Unsorted workspace lazily).
  * Heuristic assignments are provisional (review F): a storage-only session generation is written
  * before any similarity-based assignment, the windows record gets `provisional: true`, and the
- * workspace's pre-reconciliation tabs are kept under `ws:prev:<id>`. Nothing is deleted but
+ * workspace's pre-reconciliation tabs are kept under `ws:prev:<id>` (only if none is kept yet). Nothing is deleted but
  * stale pointers.
  */
 
@@ -122,8 +122,12 @@ export async function reconcileWindows(
       provisional: true,
       provisionalAt: now,
     } satisfies WindowState;
-    // One-deep: overwritten each time a provisional association is set anew.
-    writes[Keys.wsPrev(ws.meta.id)] = { tabs: ws.tabs, savedAt: now };
+    // One-deep and written only when absent: a later heuristic assignment never overwrites
+    // the version an earlier one preserved (cleared by a user switch or when the provisional
+    // period ends).
+    if (!(await repo.getWorkspacePrev(ws.meta.id))) {
+      writes[Keys.wsPrev(ws.meta.id)] = { tabs: ws.tabs, savedAt: now };
+    }
   }
 
   if (Object.keys(writes).length > 0) await repo.setMany(writes);

@@ -170,7 +170,11 @@ export interface QuickLinks {
 
 export type TrashItem =
   | { id: string; kind: "workspace"; deletedAt: number; meta: WorkspaceMeta; tabs: WorkspaceTabs }
-  | { id: string; kind: "link"; deletedAt: number; workspaceId: WorkspaceId; link: SavedLink };
+  | { id: string; kind: "link"; deletedAt: number; workspaceId: WorkspaceId; link: SavedLink }
+  /** A note archived by a replace import (restored into its scope, or "global"). */
+  | { id: string; kind: "note"; deletedAt: number; scope: Scope; note: Note }
+  /** A todo list archived by a replace import (restored into its scope, or "global"). */
+  | { id: string; kind: "todos"; deletedAt: number; scope: Scope; list: TodoList };
 export interface Trash {
   items: TrashItem[];
 }

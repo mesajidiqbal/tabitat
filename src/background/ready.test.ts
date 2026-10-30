@@ -283,10 +283,16 @@ describe("init", () => {
     await h.svc.tracker.flush(w);
     expect(stored<WorkspaceTabs>(h.fake, Keys.wsTabs("A"))?.tabs).toHaveLength(6);
     expect(stored<WorkspacePrev>(h.fake, Keys.wsPrev("A"))?.tabs.tabs).toHaveLength(10);
-    // 10 minutes of tracking end the provisional period
+    // a later heuristic assignment (context reset -> reconcile again) never overwrites ws:prev
+    h.fake.session.clear();
+    await h.restart();
+    expect(stored<WindowState>(h.fake, Keys.window(w))?.provisional).toBe(true);
+    expect(stored<WorkspacePrev>(h.fake, Keys.wsPrev("A"))?.tabs.tabs).toHaveLength(10);
+    // 10 minutes of tracking end the provisional period and release ws:prev
     h.fake.advance(PROVISIONAL_MS);
     await h.svc.tracker.flush(w);
     expect(stored<WindowState>(h.fake, Keys.window(w))?.provisional).toBeUndefined();
+    expect(stored(h.fake, Keys.wsPrev("A"))).toBeUndefined();
   });
 
   it("a user-initiated switch ends the provisional period (F)", async () => {

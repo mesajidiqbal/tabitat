@@ -57,6 +57,11 @@ export interface RouterOptions {
   ready?: () => Promise<RouterReadyState | undefined> | Promise<void>;
   /** Commands allowed while init is degraded (they must not write). */
   readOnly?: ReadonlySet<string>;
+  /**
+   * Checked inside the lanes before a mutating (non read-only) command runs: a reason makes it
+   * answer `busy` (e.g. an unresolved staged import).
+   */
+  blocked?: (type: string) => Promise<string | null>;
   dedupMs?: number;
   log?: Logger;
 }
@@ -175,8 +180,15 @@ export class CommandRouter {
         }
       }
       const lanes = route.lanes(payload);
-      const value = await this.opts.lanes.run(typeof lanes === "string" ? [lanes] : lanes, () =>
-        route.handler(payload, { requestId: msg.requestId }),
+      const value = await this.opts.lanes.run(
+        typeof lanes === "string" ? [lanes] : lanes,
+        async () => {
+          if (this.opts.blocked && !this.opts.readOnly?.has(msg.type)) {
+            const why = await this.opts.blocked(msg.type);
+            if (why !== null) throw new RpcError("busy", `${msg.type}: ${why}`);
+          }
+          return route.handler(payload, { requestId: msg.requestId });
+        },
       );
       return { ok: true, value: value === undefined ? null : value };
     } catch (e) {

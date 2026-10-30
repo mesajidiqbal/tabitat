@@ -40,14 +40,14 @@ describe("Repository", () => {
 
   it("quarantines a corrupt record under corrupt:<key> instead of throwing", async () => {
     const { fake, repo: r, log } = repo();
-    const bad = { ...meta("a"), id: "not-this-key", color: "chartreuse" };
+    const bad = "not a workspace meta"; // nothing to salvage
     fake.local.set(Keys.wsMeta("a"), bad);
     expect(await r.getWorkspaceMeta("a")).toBeNull();
     expect(fake.local.get(Keys.wsMeta("a"))).toBeUndefined();
     expect(fake.local.get("corrupt:ws:meta:a")).toMatchObject({ key: "ws:meta:a", raw: bad });
     expect(log.warnings.length).toBeGreaterThan(0);
     // a second corrupt copy does not overwrite the first
-    fake.local.set(Keys.wsMeta("a"), { broken: true });
+    fake.local.set(Keys.wsMeta("a"), 42);
     expect(await r.getWorkspaceMeta("a")).toBeNull();
     const keys = [...fake.local.keys()].filter((k) => k.startsWith("corrupt:ws:meta:a"));
     expect(keys).toHaveLength(2);
@@ -55,10 +55,17 @@ describe("Repository", () => {
 
   it("keeps the original when the quarantine copy cannot be written", async () => {
     const { fake, repo: r } = repo();
-    fake.local.set(Keys.wsTabs("a"), { tabs: "nope" });
+    fake.local.set(Keys.todos("x"), "nope");
     fake.failNext("storage.set");
-    expect(await r.getWorkspaceTabs("a")).toBeNull();
-    expect(fake.local.get(Keys.wsTabs("a"))).toEqual({ tabs: "nope" });
+    expect(await r.getTodos("x")).toBeNull();
+    expect(fake.local.get(Keys.todos("x"))).toEqual("nope");
+  });
+
+  it("a meta with a missing id is repaired from its key, not quarantined (W)", async () => {
+    const { fake, repo: r } = repo();
+    const { id: _drop, ...noId } = meta("a");
+    fake.local.set(Keys.wsMeta("a"), { ...noId, createdAt: 1.5 });
+    expect(await r.getWorkspaceMeta("a")).toMatchObject({ id: "a", name: "a", createdAt: 1 });
   });
 
   it("rebuilds a corrupt workspace index from surviving ids and ws:meta keys", async () => {

@@ -168,6 +168,70 @@ export class RawChrome {
     await this.send("ServiceWorker.stopWorker", { versionId: v.versionId }, sessionId);
   }
 
+  /** Opens an extension page as a tab; returns a CDP session id kept for repeated evals. */
+  async openExtPage(path: string): Promise<string> {
+    const { targetId } = (await this.send("Target.createTarget", {
+      url: `chrome-extension://${this.extId}/${path}`,
+    })) as { targetId: string };
+    const { sessionId } = (await this.send("Target.attachToTarget", {
+      targetId,
+      flatten: true,
+    })) as { sessionId: string };
+    await sleep(500);
+    return sessionId;
+  }
+
+  /** Evaluates an async JS body in a page session (see openExtPage); the result must be JSON. */
+  async evalIn<T>(sessionId: string, expr: string): Promise<T> {
+    const r = (await this.send(
+      "Runtime.evaluate",
+      { expression: `(async () => { ${expr} })()`, awaitPromise: true, returnByValue: true },
+      sessionId,
+    )) as { result: { value: T }; exceptionDetails?: { exception?: { description?: string } } };
+    if (r.exceptionDetails) {
+      throw new Error(r.exceptionDetails.exception?.description ?? "eval error");
+    }
+    return r.result.value;
+  }
+
+  /**
+   * Resolves the extension worker's running version ahead of time (ServiceWorker domain on a
+   * page session) and returns a function that stops it immediately (ServiceWorker.stopWorker),
+   * so a test can kill the worker a few milliseconds after triggering work.
+   */
+  async prepareStopWorker(): Promise<() => Promise<void>> {
+    const { targetInfos } = (await this.send("Target.getTargets")) as { targetInfos: Target[] };
+    const page = targetInfos.find((t) => t.type === "page");
+    if (!page) throw new Error("no page target");
+    const { sessionId } = (await this.send("Target.attachToTarget", {
+      targetId: page.targetId,
+      flatten: true,
+    })) as { sessionId: string };
+    const running = new Map<string, string>();
+    this.ws.addEventListener("message", (m: MessageEvent) => {
+      const d = JSON.parse(String(m.data));
+      if (d.method !== "ServiceWorker.workerVersionUpdated") return;
+      for (const v of d.params.versions as Array<{
+        versionId: string;
+        scriptURL: string;
+        runningStatus: string;
+      }>) {
+        if (!v.scriptURL.includes("background.js")) continue;
+        if (v.runningStatus === "running") running.set(v.versionId, v.scriptURL);
+        else running.delete(v.versionId);
+      }
+    });
+    await this.send("ServiceWorker.enable", {}, sessionId);
+    for (let i = 0; i < 30 && running.size === 0; i++) await sleep(100);
+    if (running.size === 0) throw new Error("ServiceWorker domain reported no running worker");
+    return async () => {
+      const versionId = [...running.keys()].at(-1);
+      if (!versionId) throw new Error("worker not running");
+      this.workerSession = "";
+      await this.send("ServiceWorker.stopWorker", { versionId }, sessionId);
+    };
+  }
+
   /** document.visibilityState of the first page target whose URL contains `needle`. */
   async pageVisibility(needle: string): Promise<string> {
     const { targetInfos } = (await this.send("Target.getTargets")) as { targetInfos: Target[] };

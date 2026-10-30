@@ -68,6 +68,11 @@ export interface EngineDeps {
 
 export interface SwitchResult {
   skipped: SavedTab[];
+  /**
+   * Directly created tabs that may exist twice after a worker restart (the create's result was
+   * lost). Both copies are left open: without durable provenance a tab is never auto-closed.
+   */
+  possibleDuplicates?: SavedTab[];
 }
 
 const MAX_RECOVERY_ENTRIES = 20;
@@ -153,8 +158,15 @@ export class WorkspaceEngine {
     );
   }
 
-  /** Records (durably, in storage.session) tab ids this switch is about to close. */
-  private async noteClosedBySwitch(windowId: number, ids: readonly number[]): Promise<void> {
+  /**
+   * Records (durably, in storage.session) tab ids this switch is about to close, and where each
+   * one's content was saved (`saved`: workspace + SavedTab id).
+   */
+  private async noteClosedBySwitch(
+    windowId: number,
+    ids: readonly number[],
+    saved?: { ws: string; sid: string },
+  ): Promise<void> {
     if (ids.length === 0) return;
     const now = this.ctx.ports.now();
     for (const id of ids) this.closedBySwitch.set(id, now);
@@ -164,14 +176,52 @@ export class WorkspaceEngine {
     const key = BgKeys.switchClosed(windowId);
     try {
       const prev = await this.ctx.ports.session.get<SwitchClosed>(key);
-      const keep =
-        prev && now - prev.at < SWITCH_CLOSED_TTL && Array.isArray(prev.ids) ? prev.ids : [];
-      await this.ctx.ports.session.set({
-        [key]: { ids: [...new Set([...keep, ...ids])], at: now },
-      });
+      const fresh = prev && now - prev.at < SWITCH_CLOSED_TTL && Array.isArray(prev.ids);
+      const next: SwitchClosed = {
+        ids: [...new Set([...(fresh ? prev.ids : []), ...ids])],
+        at: now,
+        saved: { ...(fresh ? prev.saved : undefined) },
+      };
+      if (saved && next.saved) for (const id of ids) next.saved[String(id)] = saved;
+      await this.ctx.ports.session.set({ [key]: next });
     } catch (e) {
       this.ctx.log.warn("[tabitat] closed-by-switch record", e);
     }
+  }
+
+  /**
+   * tabs.onRemoved for a tab this switch closed (review S): a navigation can land between the
+   * close-time revalidation and the removal. If the tab's last-known content differs from the
+   * SavedTab written for it, that entry is updated (same id). Runs after the switch (window
+   * lane), and only while the workspace is not open anywhere (else auto-save owns it).
+   */
+  async reconcileClosedTab(tabId: number, windowId: number, known: LiveTab): Promise<void> {
+    const rec = await this.ctx.ports.session
+      .get<SwitchClosed>(BgKeys.switchClosed(windowId))
+      .catch(() => undefined);
+    const target = ownGet(rec?.saved, tabId);
+    if (!target) return;
+    const raw = captureUrl(known);
+    const ph = parsePlaceholderUrl(raw, this.ctx.placeholderBase);
+    const url = ph?.u ?? raw;
+    if (url.trim() === "" || isBlankPageUrl(url)) return;
+    if (classifyUrl(url, this.ctx.classifyOptions()) === "skip") return;
+    const title = ph ? ph.t || known.title : known.title;
+    await this.ctx.lanes.run([Lane.window(windowId)], async () => {
+      if ((await this.ownerOf(target.ws)) !== null) return;
+      const { repo, ports } = this.ctx;
+      const cur = await repo.getWorkspaceTabs(target.ws);
+      const entry = cur?.tabs.find((t) => t.id === target.sid);
+      if (!cur || !entry || (entry.url === url && entry.title === title)) return;
+      await repo.setMany({
+        [Keys.wsTabs(target.ws)]: {
+          ...cur,
+          tabs: cur.tabs.map((t) => (t.id === entry.id ? { ...t, url, title } : t)),
+          updatedAt: ports.now(),
+          rev: cur.rev + 1,
+        } satisfies WorkspaceTabs,
+      });
+    });
   }
 
   status(windowId: number): SwitchOp | null {
@@ -622,7 +672,12 @@ export class WorkspaceEngine {
         if (!isNoTabError(e)) throw e;
       }
     }
-    // A user-initiated switch ends a provisional (reconciled) association: fresh record.
+    // A user-initiated switch ends a provisional (reconciled) association: fresh record, and the
+    // workspace's pre-reconciliation copy (ws:prev) is released.
+    const prevState = await this.ctx.repo.getWindowState(op.windowId);
+    if (prevState?.provisional && prevState.activeWorkspaceId !== null) {
+      await this.ctx.repo.remove(Keys.wsPrev(prevState.activeWorkspaceId));
+    }
     await this.ctx.repo.setMany({
       [Keys.window(op.windowId)]: {
         activeWorkspaceId: op.to,
@@ -656,26 +711,36 @@ export class WorkspaceEngine {
     for (const id of op.outgoingTabIds) {
       const tab = await ports.tabs.get(id);
       if (!tab) continue; // already gone (or unknown): nothing to close
-      if (!(await this.saveBeforeClose(op, tab))) continue; // retained
-      // Durable "closed by this switch" mark first (a worker restart must not misread it).
-      await this.noteClosedBySwitch(op.windowId, [id]);
+      const v = await this.saveBeforeClose(op, tab);
+      if (!v.close) continue; // retained
+      await this.checkpoint(`closing:validated:${id}`, op);
+      // Durable "closed by this switch" mark first (a worker restart must not misread it),
+      // with where the content went (a late navigation is reconciled on the removal event).
+      await this.noteClosedBySwitch(
+        op.windowId,
+        [id],
+        v.savedId !== undefined && op.from !== null ? { ws: op.from, sid: v.savedId } : undefined,
+      );
       await removeTabsSafely(ports.tabs, [id]);
     }
   }
 
   /**
-   * Revalidates one outgoing tab. Returns true when it may be closed (its current content is
-   * durably saved in `from`, or it is blank); false to retain it.
+   * Revalidates one outgoing tab. `close` when it may be closed (its current content is durably
+   * saved in `from` as SavedTab `savedId`, or it is blank); otherwise it is retained.
    */
-  private async saveBeforeClose(op: SwitchOp, tab: LiveTab): Promise<boolean> {
+  private async saveBeforeClose(
+    op: SwitchOp,
+    tab: LiveTab,
+  ): Promise<{ close: boolean; savedId?: string }> {
     const { repo, ports } = this.ctx;
-    if (tab.windowId !== op.windowId || tab.pinned) return false;
+    if (tab.windowId !== op.windowId || tab.pinned) return { close: false };
     const raw = captureUrl(tab);
     const ph = parsePlaceholderUrl(raw, this.ctx.placeholderBase);
     const url = ph?.u ?? raw;
-    if (url.trim() === "" || isBlankPageUrl(url)) return true;
-    if (classifyUrl(url, this.ctx.classifyOptions()) === "skip") return false;
-    if (op.from === null) return false; // nowhere to save it
+    if (url.trim() === "" || isBlankPageUrl(url)) return { close: true };
+    if (classifyUrl(url, this.ctx.classifyOptions()) === "skip") return { close: false };
+    if (op.from === null) return { close: false }; // nowhere to save it
     const title = ph ? ph.t || tab.title : tab.title;
     const cur = (await repo.getWorkspaceTabs(op.from)) ?? emptyTabs(ports.now());
     const savedId = ownGet(op.outgoingSavedIds, tab.id);
@@ -685,10 +750,13 @@ export class WorkspaceEngine {
         : op.outgoingSavedIds === undefined
           ? cur.tabs.find((t) => t.url === url) // op written before outgoingSavedIds existed
           : undefined;
-    if (entry && entry.url === url && entry.title === title) return true;
+    if (entry && entry.url === url && entry.title === title)
+      return { close: true, savedId: entry.id };
     const favIconUrl = ph ? entry?.favIconUrl : sanitizeFavIconUrl(tab.favIconUrl);
     let tabs: SavedTab[];
+    let newSavedId: string;
     if (entry) {
+      newSavedId = entry.id;
       tabs = cur.tabs.map((t) => {
         if (t.id !== entry.id) return t;
         const next: SavedTab = { ...t, url, title };
@@ -700,6 +768,7 @@ export class WorkspaceEngine {
       const index = cur.tabs.reduce((m, t) => Math.max(m, t.index + 1), 0);
       const added: SavedTab = { id: ports.newId(), url, title, index };
       if (favIconUrl) added.favIconUrl = favIconUrl;
+      newSavedId = added.id;
       tabs = [...cur.tabs, added];
     }
     await repo.setMany({
@@ -710,51 +779,53 @@ export class WorkspaceEngine {
         rev: cur.rev + 1,
       } satisfies WorkspaceTabs,
     });
-    return true;
+    return { close: true, savedId: newSavedId };
   }
 
   /**
-   * After a resumed op: closes duplicates a lost `tabs.create` result produced. Placeholders of
-   * `to` sharing an `s` hint keep the recorded (or first) one; an unrecorded tab whose URL equals
-   * a recorded directly-created tab's URL is the duplicate of a create whose result was lost.
-   * Outgoing (possibly retained) and pinned tabs are never touched.
+   * After a resumed op (review R): closes only duplicates with durable provenance — a placeholder
+   * of `to` whose `s` hint names a saved tab that this op recorded as created in ANOTHER live
+   * tab. A directly created tab (chrome://, our pages) has no such provenance: a suspected
+   * duplicate (an unrecorded tab with the same URL) is left open and reported. Outgoing and
+   * pinned tabs are never touched.
    */
-  private async dedupeAfterResume(op: SwitchOp, win: LiveWindow): Promise<boolean> {
+  private async dedupeAfterResume(
+    op: SwitchOp,
+    win: LiveWindow,
+  ): Promise<{ closed: boolean; possible: SavedTab[] }> {
     const base = this.ctx.placeholderBase;
     const recorded = new Map<number, string>();
     for (const [sid, tid] of Object.entries(op.createdTabIds)) recorded.set(tid, sid);
     const outgoing = new Set(op.outgoingTabIds);
     const candidates = win.tabs.filter((t) => !t.pinned && !outgoing.has(t.id));
+    const liveIds = new Set(candidates.map((t) => t.id));
     const close: number[] = [];
-    const bySaved = new Map<string, number[]>();
     for (const t of candidates) {
+      if (recorded.has(t.id)) continue;
       const ph = parsePlaceholderUrl(t.url, base);
       if (!ph || ph.w !== op.to) continue;
-      const list = bySaved.get(ph.s);
-      if (list) list.push(t.id);
-      else bySaved.set(ph.s, [t.id]);
+      const rec = ownGet(op.createdTabIds, ph.s);
+      if (rec !== undefined && rec !== t.id && liveIds.has(rec)) close.push(t.id);
     }
-    for (const [sid, ids] of bySaved) {
-      if (ids.length < 2) continue;
-      const rec = ownGet(op.createdTabIds, sid);
-      const keep = rec !== undefined && ids.includes(rec) ? rec : (ids[0] as number);
-      close.push(...ids.filter((id) => id !== keep));
-    }
-    const directUrls = new Map<string, number>();
+    const possible: SavedTab[] = [];
+    const byUrl = new Map<string, string>();
     for (const t of candidates) {
       const sid = recorded.get(t.id);
-      if (sid === undefined || parsePlaceholderUrl(t.url, base)) continue;
-      directUrls.set(t.url, t.id);
+      if (sid !== undefined && !parsePlaceholderUrl(t.url, base)) byUrl.set(t.url, sid);
     }
     for (const t of candidates) {
       if (recorded.has(t.id) || close.includes(t.id)) continue;
-      const keep = directUrls.get(t.url);
-      if (keep !== undefined && keep !== t.id) close.push(t.id);
+      const sid = byUrl.get(t.url);
+      const saved = sid !== undefined ? op.incoming.find((x) => x.id === sid) : undefined;
+      if (saved && !possible.includes(saved)) possible.push(saved);
     }
-    if (close.length === 0) return false;
+    if (possible.length > 0) {
+      this.ctx.log.warn("[tabitat] possible duplicate tabs after resume (left open)", possible);
+    }
+    if (close.length === 0) return { closed: false, possible };
     await this.noteClosedBySwitch(op.windowId, close);
     await removeTabsSafely(this.ctx.ports.tabs, close);
-    return true;
+    return { closed: true, possible };
   }
 
   /** Full re-snapshot into ws:tabs:<to>, skipped tabs kept as saved links, then commit (delete op). */
@@ -762,8 +833,11 @@ export class WorkspaceEngine {
     const { repo, ports } = this.ctx;
     const writes: Record<string, unknown> = {};
     let win = await this.ctx.getWindow(op.windowId);
-    if (win && op.attempts > 0 && (await this.dedupeAfterResume(op, win))) {
-      win = await this.ctx.getWindow(op.windowId);
+    let possibleDuplicates: SavedTab[] = [];
+    if (win && op.attempts > 0) {
+      const d = await this.dedupeAfterResume(op, win);
+      possibleDuplicates = d.possible;
+      if (d.closed) win = await this.ctx.getWindow(op.windowId);
     }
     if (win) {
       const prev = await repo.getWorkspaceTabs(op.to);
@@ -805,7 +879,9 @@ export class WorkspaceEngine {
     if (this.deps.refreshBadge) {
       await this.deps.refreshBadge(op.windowId).catch((e) => this.ctx.log.warn(e));
     }
-    return { skipped: op.skipped };
+    return possibleDuplicates.length > 0
+      ? { skipped: op.skipped, possibleDuplicates }
+      : { skipped: op.skipped };
   }
 
   // ------------------------------------------------------------------ other workspace ops
@@ -938,7 +1014,7 @@ export class WorkspaceEngine {
       affected.push(windowId);
     }
     await repo.setMany(writes);
-    await repo.remove([Keys.wsMeta(id), Keys.wsTabs(id)]);
+    await repo.remove([Keys.wsMeta(id), Keys.wsTabs(id), Keys.wsPrev(id)]);
     for (const w of affected) this.deps.markDirty?.(w);
     return { trashId };
   }

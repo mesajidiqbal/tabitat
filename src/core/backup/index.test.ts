@@ -130,6 +130,13 @@ describe("validateBackup", () => {
     expect(() => validateBackup(spaced)).toThrow(SchemaError);
   });
 
+  it("drops a dangling activeSavedTabId instead of rejecting the file (U)", () => {
+    const file = buildBackup(storage(), NOW) as BackupFile;
+    const t = file.data.workspaces[0]?.tabs;
+    if (t) t.activeSavedTabId = "missing";
+    expect(validateBackup(file).data.workspaces[0]?.tabs.activeSavedTabId).toBeUndefined();
+  });
+
   it("drops disallowed favicons instead of rejecting the file", () => {
     const file = buildBackup(storage(), NOW) as BackupFile;
     const t0 = file.data.workspaces[0]?.tabs.tabs[0];

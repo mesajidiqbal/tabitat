@@ -707,7 +707,7 @@ describe("WorkspaceEngine — lost results after a worker death (J)", () => {
     expectSwitched(h, 3);
   });
 
-  it("a lost direct-created tab is duplicated once, then closed by the post-resume dedupe", async () => {
+  it("a lost direct-created tab may be duplicated once: both stay open and it is reported (R)", async () => {
     const urls = ["https://b.example/0", "chrome://settings/", "https://b.example/2"];
     const h = await setup({
       windows: [[...A_URLS]],
@@ -722,9 +722,49 @@ describe("WorkspaceEngine — lost results after a worker death (J)", () => {
     void h.rpc("workspace.switch", { windowId: w, workspaceId: "B" });
     await settle(10);
     await h.restart();
-    expect(unwrappedUrls(h.fake, w, h.placeholderBase)).toEqual(urls);
     expect(stored(h.fake, Keys.opSwitch(w))).toBeUndefined();
-    expect(stored<ClosedTab[]>(h.fake, Keys.recentlyClosed) ?? []).toEqual([]);
+    // no URL-only auto-close: the lost create and its retry both remain
+    expect(h.fake.urlsOf(w).filter((u) => u === "chrome://settings/")).toHaveLength(2);
+    expect(h.log.warnings.some((a) => String(a[0]).includes("possible duplicate"))).toBe(true);
+  });
+
+  it("a user tab with the same URL as a restored direct tab is never closed (R)", async () => {
+    const urls = ["https://b.example/0", "chrome://settings/", "https://b.example/2"];
+    const h = await setup({
+      windows: [[...A_URLS]],
+      before: (fake) => seedWorkspace(fake, "B", urls),
+      services: { debounceMs: 60_000 },
+    });
+    const w = h.fake.windowIds()[0] as number;
+    await h.ok("workspace.create", { name: "A", color: "red", fromWindowId: w });
+    h.fake.failNext("tabs.create", {
+      when: (spec) => (spec as { url: string }).url.includes("s=B-t2"),
+    });
+    expect((await h.rpc("workspace.switch", { windowId: w, workspaceId: "B" })).ok).toBe(false);
+    const userTab = h.fake.openTab(w, "chrome://settings/"); // the user, while it is stalled
+    await settle();
+    const op = opOf(h, w) as SwitchOp;
+    const res = await h.svc.engine.resume(op);
+    expect(h.fake.hasTab(userTab)).toBe(true);
+    expect(res.possibleDuplicates?.map((t) => t.url)).toEqual(["chrome://settings/"]);
+    expect(await h.svc.engine.wasClosedBySwitch(userTab, w)).toBe(false);
+  });
+
+  it("an unrecorded placeholder whose s hint is recorded in another tab is closed (R)", async () => {
+    const h = await world(3);
+    h.fake.failNext("tabs.create", {
+      when: (spec) => (spec as { url: string }).url.includes("s=B-t2"),
+    });
+    await h.rpc("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    const op = opOf(h, h.windowId) as SwitchOp;
+    const recorded = op.createdTabIds["B-t0"] as number;
+    // a copy of a recorded placeholder (e.g. "Duplicate tab" on it)
+    const copy = h.fake.openTab(h.windowId, h.fake.tab(recorded)?.url as string);
+    await settle();
+    await h.svc.engine.resume(op);
+    expect(h.fake.hasTab(copy)).toBe(false);
+    expect(h.fake.hasTab(recorded)).toBe(true);
+    expectSwitched(h, 3);
   });
 });
 
@@ -816,5 +856,55 @@ describe("WorkspaceEngine — abandon, ownership, closed-by-switch (L, M, N)", (
     }
     expect(await h.svc.engine.wasClosedBySwitch(424_242, h.windowId)).toBe(false);
     expect(stored<ClosedTab[]>(h.fake, Keys.recentlyClosed)).toEqual([]);
+  });
+});
+
+describe("WorkspaceEngine — second-pass review fixes (S, V, X)", () => {
+  it("a navigation between revalidation and removal is saved from the last-known copy (S)", async () => {
+    let raced = -1;
+    const h = await world(3, {
+      hooks: {
+        checkpoint: (p) => {
+          if (raced === -1 && p.startsWith("closing:validated:")) {
+            raced = Number(p.slice("closing:validated:".length));
+            h.fake.navigate(raced, "https://a.example/late", "Late");
+          }
+        },
+      },
+    });
+    const before = stored<WorkspaceTabs>(h.fake, Keys.wsTabs(h.aId));
+    await h.ok("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    await settle(10);
+    expect(h.fake.hasTab(raced)).toBe(false);
+    const after = stored<WorkspaceTabs>(h.fake, Keys.wsTabs(h.aId));
+    expect(after?.tabs.map((t) => t.url)).toEqual([
+      "https://a.example/late",
+      "https://a.example/2",
+      "https://a.example/3",
+    ]);
+    expect(after?.tabs[0]?.title).toBe("Late");
+    expect(after?.tabs.map((t) => t.id)).toEqual(before?.tabs.map((t) => t.id));
+    expect(stored(h.fake, Keys.recentlyClosed)).toEqual([]);
+  });
+
+  it("a user switch releases the provisional window's ws:prev (V)", async () => {
+    const h = await setup({
+      windows: [["https://a.example/1", "https://a.example/2"]],
+      before: (fake) => {
+        seedWorkspace(fake, "A", ["https://a.example/1", "https://a.example/2"]);
+        seedWorkspace(fake, "B", ["https://b.example/"]);
+      },
+    });
+    const w = h.fake.windowIds()[0] as number;
+    expect(stored(h.fake, Keys.wsPrev("A"))).toBeDefined();
+    await h.ok("workspace.switch", { windowId: w, workspaceId: "B" });
+    expect(stored(h.fake, Keys.wsPrev("A"))).toBeUndefined();
+  });
+
+  it("deleteWorkspace also removes ws:prev (X)", async () => {
+    const h = await world(1);
+    h.fake.local.set(Keys.wsPrev("B"), { tabs: { tabs: [], updatedAt: 1, rev: 0 }, savedAt: 1 });
+    await h.ok("workspace.delete", { id: "B" });
+    expect(stored(h.fake, Keys.wsPrev("B"))).toBeUndefined();
   });
 });

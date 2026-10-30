@@ -229,6 +229,12 @@ describe("ids", () => {
   it.each(["a", "A-b_9", "constructor", "a".repeat(64)])("accepts id %j", (id) => {
     expect(S.isSavedTab({ ...tab, id })).toBe(true);
   });
+  it("activeSavedTabId must reference one of the tabs (U)", () => {
+    expect(S.isWorkspaceTabs({ ...tabs, activeSavedTabId: "nope" })).toBe(false);
+    expect(S.isWorkspaceTabs({ ...tabs, activeSavedTabId: "t1" })).toBe(true);
+    const { activeSavedTabId: _a, ...noActive } = tabs;
+    expect(S.isWorkspaceTabs(noActive)).toBe(true);
+  });
   it("saved tab ids are unique within a workspace", () => {
     const t2 = { ...tab, url: "https://other.example/" };
     expect(S.isWorkspaceTabs({ ...tabs, tabs: [tab, t2] })).toBe(false);

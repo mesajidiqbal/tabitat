@@ -223,8 +223,8 @@ export async function runInit(d: InitDeps): Promise<InitReport> {
   // 3. interrupted import (fatal if it can be neither applied nor set aside: no command may
   //    write while a staged import is unresolved)
   const resolved = await d.backup.resolveStaged();
-  report.importReapplied = resolved === "applied";
-  report.importFailed = resolved === "failed";
+  report.importReapplied = resolved.outcome === "applied";
+  report.importFailed = resolved.outcome === "failed";
 
   // 4. op journal
   await step("ops", async () => {

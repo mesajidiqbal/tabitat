@@ -5,16 +5,21 @@ Update it at the end of every phase (and at any forced pause).
 
 ## Current checkpoint
 
-- Phase: 0 complete → tag `phase-0`.
-- State: ARCHITECTURE.md v1 finalized after Codex + Gemini review
-  (triage in `docs/reviews/phase0-triage.md`, ADR-001…004). Repo
-  scaffolded: WXT 0.21, Preact 10 + signals, valibot, fuzzysort, idb,
-  Biome, Vitest 5, Playwright, CI + release workflows, two build flavors
-  (default / newtab). `npm run check` and both builds are green.
-- Next: Phase 1a browser spike (`docs/SPIKE.md`), then Phase 1 core
-  (schemas, migrations, switch planner, CommandRouter, TabTracker,
-  WorkspaceEngine, Reconciler, SessionGuard, export/import, failure
-  injection tests), then Codex + Gemini review of Phase 1.
+- Phase: 1 complete → tag `phase-1`.
+- State: core domain (264 tests), platform adapters + fake browser with
+  failure injection, typed RPC, background services (lanes, command
+  router, repository with per-item salvage, init barrier with degraded
+  mode, reconciler, tab tracker with last-known rescue, durable switch
+  engine, session guard, reversible backup/import, suspender, pomodoro,
+  badge, commands), dev popup. 476 unit tests, 3 Playwright e2e on
+  installed Chrome incl. a real worker-kill mid-switch test. Reviewed
+  twice by Codex + Gemini (`docs/reviews/phase1-*.md`, triage in
+  `phase1-triage.md`); all must-fix items resolved.
+- Known gaps carried into Phase 2: recovery page is a stub (Phase 2
+  deliverable); suspected direct-tab duplicates after a worker restart
+  are only logged; manual QA items Q1–Q10 not yet run; Edge untested.
+- Next: Phase 2 — popup + side panel + recovery UI per `docs/UI-SPEC.md`,
+  then Codex + Gemini review.
 
 ## Review process (every phase)
 
@@ -33,8 +38,8 @@ Update it at the end of every phase (and at any forced pause).
 | Phase | Status | Tag | Notes |
 |---|---|---|---|
 | 0 | done | `phase-0` | design reviewed by Codex + Gemini; scaffold green |
-| 1a | pending | | browser spike |
-| 1 | pending | | |
+| 1a | done | — | spike S1–S14 on Chrome + Brave (`docs/SPIKE.md`) |
+| 1 | done | `phase-1` | core + engine; 2 review rounds; 476 tests |
 | 2 | pending | | |
 | 3 | pending | | |
 | 4 | pending | | |

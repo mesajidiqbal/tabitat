@@ -32,6 +32,8 @@ export interface TrackerDeps {
   isLocked(windowId: number): Promise<boolean>;
   wasClosedBySwitch(tabId: number, windowId: number): boolean | Promise<boolean>;
   onTabReplaced?(added: number, removed: number): Promise<void>;
+  /** A tab a switch closed was removed; `known` is its last-known state. */
+  onSwitchClosedTab?(tabId: number, windowId: number, known: LiveTab): Promise<void>;
   /** A window closed while a switch op existed for it. */
   onOrphanedOp?(windowId: number): Promise<void>;
   onWindowGone?(windowId: number): Promise<void>;
@@ -113,8 +115,16 @@ export class TabTracker {
   start(): void {
     const ev = this.ctx.ports.events;
     const guard =
-      <A extends unknown[]>(fn: (...a: A) => Promise<void>) =>
+      <A extends unknown[]>(fn: (...a: A) => Promise<void>, pre?: (...a: A) => void) =>
       (...a: A) => {
+        // `pre` runs synchronously in the listener, before any await or debounce: the
+        // last-known copy must already hold an event's state when a later event (a removal)
+        // is handled.
+        try {
+          pre?.(...a);
+        } catch (e) {
+          this.ctx.log.warn("[tabitat] tracker pre-handler failed", e);
+        }
         void (async () => {
           const st = await this.deps.ready();
           if (st?.degraded) return; // init failed: never write on an unknown state
@@ -123,19 +133,21 @@ export class TabTracker {
       };
     this.subs.push(
       ev.onTabCreated(
-        guard(async (tab: LiveTab) => {
-          this.lkUpsert(tab, true);
-          this.markDirty(tab.windowId);
-        }),
+        guard(
+          async (tab: LiveTab) => this.markDirty(tab.windowId),
+          (tab: LiveTab) => this.lkUpsert(tab, true),
+        ),
       ),
       ev.onTabUpdated(
-        guard(async (_id: number, change: TabChangeInfo, tab: LiveTab) => {
-          this.lkUpsert(tab, false);
-          const pendingNav = change.status === "loading" && tab.pendingUrl !== undefined;
-          if (pendingNav || SNAPSHOT_FIELDS.some((f) => change[f] !== undefined)) {
-            this.markDirty(tab.windowId);
-          }
-        }),
+        guard(
+          async (_id: number, change: TabChangeInfo, tab: LiveTab) => {
+            const pendingNav = change.status === "loading" && tab.pendingUrl !== undefined;
+            if (pendingNav || SNAPSHOT_FIELDS.some((f) => change[f] !== undefined)) {
+              this.markDirty(tab.windowId);
+            }
+          },
+          (_id: number, _change: TabChangeInfo, tab: LiveTab) => this.lkUpsert(tab, false),
+        ),
       ),
       ev.onTabRemoved(guard((id: number, info: TabRemoveInfo) => this.handleRemoved(id, info))),
       ev.onTabMoved(
@@ -356,6 +368,7 @@ export class TabTracker {
       return "created";
     }
     const writes: Record<string, unknown> = {};
+    let expired = false;
     if (state?.provisional) {
       // Provisional (heuristic) match: the pre-reconciliation tabs stay under ws:prev:<id>.
       if (prev && !(await repo.getWorkspacePrev(wsId))) {
@@ -366,11 +379,15 @@ export class TabTracker {
           activeWorkspaceId: wsId,
           sessionEpoch: state.sessionEpoch,
         } satisfies WindowState;
+        expired = true;
       }
     }
     if (snap !== prev) writes[Keys.wsTabs(wsId)] = snap;
+    if (expired) delete writes[Keys.wsPrev(wsId)];
     if (Object.keys(writes).length === 0) return "same";
     await repo.setMany(writes);
+    // The provisional window is over: the pre-reconciliation copy is released.
+    if (expired) await repo.remove(Keys.wsPrev(wsId));
     return snap === prev ? "same" : "written";
   }
 
@@ -484,12 +501,13 @@ export class TabTracker {
     }
     const known = await this.lookup(tabId, info.windowId);
     this.lkDelete(info.windowId, tabId);
-    if (
-      (await this.deps.wasClosedBySwitch(tabId, info.windowId)) ||
-      (await this.deps.isLocked(info.windowId))
-    ) {
+    if (await this.deps.wasClosedBySwitch(tabId, info.windowId)) {
+      // The switch saved this tab before closing it; a navigation that landed after that check
+      // is in the last-known copy (review S).
+      if (known) await this.deps.onSwitchClosedTab?.(tabId, info.windowId, known);
       return;
     }
+    if (await this.deps.isLocked(info.windowId)) return;
     if (known) {
       const state = await this.ctx.repo.getWindowState(info.windowId);
       await this.recordClosed([this.closedEntry(known, state?.activeWorkspaceId ?? undefined)]);

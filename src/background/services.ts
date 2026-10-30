@@ -94,6 +94,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
     isLocked: (w) => engine.isLocked(w),
     wasClosedBySwitch: (id, w) => engine.wasClosedBySwitch(id, w),
     onTabReplaced: (a, r) => engine.onTabReplaced(a, r),
+    onSwitchClosedTab: (tabId, w, known) => engine.reconcileClosedTab(tabId, w, known),
     onOrphanedOp: async (w) => {
       const op = await repo.getOp(w);
       if (op && !engine.isBusy(w)) await engine.abandon(op, "window closed during the switch");
@@ -127,6 +128,8 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
     now: ports.now,
     ready: readyOrRetry,
     readOnly: READ_ONLY_COMMANDS,
+    // backup.import resolves an open staging itself; everything else waits for it (T1).
+    blocked: (type) => (type === "backup.import" ? Promise.resolve(null) : backup.blockingReason()),
     log,
   });
   const shortcuts = new Shortcuts({

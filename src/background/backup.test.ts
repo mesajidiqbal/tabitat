@@ -191,6 +191,7 @@ describe("BackupService", () => {
     h.fake.local.set(Keys.importStaging, {
       set: { [Keys.wsIndex]: ["A"] },
       remove: [],
+      baseRevs: {},
       startedAt: 1,
     });
     h.svc.stop();
@@ -282,5 +283,145 @@ describe("BackupService", () => {
     await h.rpc("workspace.switch", { windowId: w, workspaceId: "A" });
     const file = await h.ok("backup.export", {});
     expect(await h.rpc("backup.import", { file, mode: "merge" })).toMatchObject({ code: "busy" });
+  });
+
+  it("while staging survives a runtime failure, mutating commands answer busy (T1)", async () => {
+    const h = await setup({ before: (fake) => seedWorkspace(fake, "A", ["https://a.example/"]) });
+    const file = await h.ok("backup.export", {});
+    const name = file.data.workspaces[0];
+    if (name) name.meta.name = "Imported";
+    // removing import:staging keeps failing: neither apply nor the move to import:failed completes
+    const stagingRemove = (keys: unknown) =>
+      (Array.isArray(keys) ? keys : [keys]).includes(Keys.importStaging);
+    h.fake.failNext("storage.remove", { times: 6, when: stagingRemove });
+    expect((await h.rpc("backup.import", { file, mode: "replace" })).ok).toBe(false);
+    expect(stored(h.fake, Keys.importStaging)).toBeDefined();
+    // a mutating command is refused while the import is unresolved; reads still work
+    expect(await h.rpc("settings.update", { patch: { theme: "dark" } })).toMatchObject({
+      ok: false,
+      code: "busy",
+    });
+    expect((await h.rpc("backup.export", {})).ok).toBe(true);
+    // once storage recovers, the next command resolves the import first, then runs
+    h.fake.clearFailures();
+    expect((await h.rpc("settings.update", { patch: { theme: "dark" } })).ok).toBe(true);
+    expect(stored(h.fake, Keys.importStaging)).toBeUndefined();
+    expect(stored(h.fake, "import:failed")).toBeUndefined(); // resolved after all
+    // the acknowledged edit survives a restart (no replay over it)
+    await h.restart();
+    expect(stored<{ theme: string }>(h.fake, Keys.settings)?.theme).toBe("dark");
+    expect(stored<WorkspaceMeta>(h.fake, Keys.wsMeta("A"))?.name).toBe("Imported");
+  });
+
+  it("legacy staging without baseRevs is never applied blindly (T2)", async () => {
+    const h = await setup({ before: (fake) => seedWorkspace(fake, "A", ["https://a.example/"]) });
+    h.fake.local.set(Keys.importStaging, {
+      set: { [Keys.wsTabs("A")]: { tabs: [], updatedAt: 1, rev: 0 } },
+      remove: [],
+      startedAt: 1,
+    });
+    await h.restart();
+    expect(h.svc.initReport?.importFailed).toBe(true);
+    expect(stored(h.fake, Keys.importStaging)).toBeUndefined();
+    expect(stored<{ reason: string }>(h.fake, "import:failed")?.reason).toBe("legacy_staging");
+    expect(stored<WorkspaceTabs>(h.fake, Keys.wsTabs("A"))?.tabs).toHaveLength(1);
+  });
+
+  it("settings and quick links are revision-guarded on replay (T3)", async () => {
+    const h = await setup();
+    await h.ok("settings.update", { patch: { theme: "light" } });
+    const rev = stored<{ rev: number }>(h.fake, Keys.settings)?.rev as number;
+    h.fake.local.set(Keys.importStaging, {
+      set: {
+        [Keys.settings]: { ...stored<object>(h.fake, Keys.settings), theme: "dark", rev: rev + 5 },
+        [Keys.quicklinks]: { items: [], rev: 9 },
+      },
+      remove: [],
+      baseRevs: { [Keys.settings]: rev - 1, [Keys.quicklinks]: 0 },
+      startedAt: 1,
+    });
+    h.fake.local.set(Keys.quicklinks, {
+      items: [{ id: "q", url: "https://q.example/", title: "Q", order: 0 }],
+      rev: 3,
+    });
+    await h.restart();
+    expect(stored<{ theme: string }>(h.fake, Keys.settings)?.theme).toBe("light");
+    expect(stored<{ items: unknown[] }>(h.fake, Keys.quicklinks)?.items).toHaveLength(1);
+  });
+
+  it("replace import archives replaced notes and todos; trash.restore brings them back (T4)", async () => {
+    const h = await setup({ before: (fake) => seedWorkspace(fake, "A", ["https://a.example/"]) });
+    await h.ok("note.set", { scope: "global", content: "keep me" });
+    await h.ok("note.set", { scope: "A", content: "A's note" });
+    await h.ok("todo.set", {
+      scope: "global",
+      items: [{ id: "t1", text: "old todo", done: false, order: 0, createdAt: 1 }],
+    });
+    const file = await h.ok("backup.export", {});
+    file.data.notes = {};
+    file.data.todos = {};
+    await h.ok("backup.import", { file, mode: "replace" });
+    expect(stored(h.fake, Keys.notes("global"))).toBeUndefined();
+    const trash = stored<Trash>(h.fake, Keys.trash)?.items ?? [];
+    const notes = trash.filter((i) => i.kind === "note");
+    expect(notes.map((i) => i.kind === "note" && [i.scope, i.note.content]).sort()).toEqual([
+      ["A", "A's note"],
+      ["global", "keep me"],
+    ]);
+    const todos = trash.find((i) => i.kind === "todos");
+    expect(todos && todos.kind === "todos" && todos.list.items[0]?.text).toBe("old todo");
+    for (const item of [...notes, todos])
+      await h.ok("trash.restore", { trashId: item?.id as string });
+    expect(stored<{ content: string }>(h.fake, Keys.notes("global"))?.content).toBe("keep me");
+    expect(stored<{ content: string }>(h.fake, Keys.notes("A"))?.content).toBe("A's note");
+    expect(
+      stored<{ items: Array<{ text: string }> }>(h.fake, Keys.todos("global"))?.items[0]?.text,
+    ).toBe("old todo");
+  });
+
+  it("a note restored into a deleted workspace's scope goes to global, appended (T4)", async () => {
+    const h = await setup({ before: (fake) => seedWorkspace(fake, "A", ["https://a.example/"]) });
+    await h.ok("note.set", { scope: "global", content: "current" });
+    h.fake.local.set(Keys.trash, {
+      items: [
+        {
+          id: "n1",
+          kind: "note",
+          deletedAt: h.fake.clock,
+          scope: "gone",
+          note: { content: "archived", updatedAt: 1, rev: 1 },
+        },
+      ],
+    });
+    await h.ok("trash.restore", { trashId: "n1" });
+    expect(stored<{ content: string }>(h.fake, Keys.notes("global"))?.content).toBe(
+      "current\n\narchived",
+    );
+  });
+
+  it("a failure after records were written reports partial: true with the applied keys (T5)", async () => {
+    const h = await setup({
+      before: (fake) => {
+        seedWorkspace(fake, "A", ["https://a.example/"]);
+        seedWorkspace(fake, "OLD", ["https://old.example/"]);
+      },
+    });
+    const file = await h.ok("backup.export", {});
+    file.data.workspaces = file.data.workspaces.filter((w) => w.meta.id === "A");
+    // the set lands, the removals of OLD keep failing
+    h.fake.failNext("storage.remove", {
+      times: 10,
+      when: (keys) => (Array.isArray(keys) ? keys : [keys]).includes(Keys.wsMeta("OLD")),
+    });
+    const env = await h.rpc("backup.import", { file, mode: "replace" });
+    expect(env).toMatchObject({ ok: false, code: "internal", retryable: true });
+    if (env.ok) throw new Error("unreachable");
+    expect(env.message).toMatch(/partially applied/);
+    expect(env.details).toMatchObject({ partial: true });
+    expect(env.details?.applied).toEqual(expect.arrayContaining([Keys.wsMeta("A"), Keys.wsIndex]));
+    expect(stored<{ partial: boolean; applied: string[] }>(h.fake, "import:failed")).toMatchObject({
+      partial: true,
+    });
+    expect(stored(h.fake, Keys.importStaging)).toBeUndefined();
   });
 });

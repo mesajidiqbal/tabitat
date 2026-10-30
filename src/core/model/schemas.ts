@@ -143,15 +143,25 @@ export const WorkspaceMetaSchema = v.object({
   rev: NonNegInt,
 });
 
-export const WorkspaceTabsSchema = v.object({
-  tabs: v.pipe(
-    v.array(SavedTabSchema),
-    v.check((t: SavedTab[]) => hasUniqueIds(t), "saved tab ids must be unique within a workspace"),
+export const WorkspaceTabsSchema = v.pipe(
+  v.object({
+    tabs: v.pipe(
+      v.array(SavedTabSchema),
+      v.check(
+        (t: SavedTab[]) => hasUniqueIds(t),
+        "saved tab ids must be unique within a workspace",
+      ),
+    ),
+    activeSavedTabId: v.optional(v.string()),
+    updatedAt: Timestamp,
+    rev: NonNegInt,
+  }),
+  v.check(
+    (w: WorkspaceTabs) =>
+      w.activeSavedTabId === undefined || w.tabs.some((t) => t.id === w.activeSavedTabId),
+    "activeSavedTabId must reference one of the tabs",
   ),
-  activeSavedTabId: v.optional(v.string()),
-  updatedAt: Timestamp,
-  rev: NonNegInt,
-});
+);
 
 export const WorkspaceIndexSchema = v.pipe(
   v.array(Id),
@@ -272,6 +282,20 @@ export const TrashItemSchema = v.variant("kind", [
     deletedAt: Timestamp,
     workspaceId: Id,
     link: SavedLinkSchema,
+  }),
+  v.object({
+    id: Id,
+    kind: v.literal("note"),
+    deletedAt: Timestamp,
+    scope: Id,
+    note: NoteSchema,
+  }),
+  v.object({
+    id: Id,
+    kind: v.literal("todos"),
+    deletedAt: Timestamp,
+    scope: Id,
+    list: TodoListSchema,
   }),
 ]);
 

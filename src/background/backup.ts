@@ -53,11 +53,22 @@ function prefixed(k: string, prefix: string): string | null {
 const familyOf = (k: string) => STAGING_FAMILIES.find((f) => f.match(k) !== null);
 export const isStagingKey = (k: string): boolean => familyOf(k) !== undefined;
 
-/** Records whose replay is revision-guarded. */
+/** Records whose replay is revision-guarded (every family that carries a `rev`). */
 const isRevGuarded = (k: string) =>
+  k === Keys.settings ||
+  k === Keys.quicklinks ||
   [KEY_PREFIX.wsMeta, KEY_PREFIX.wsTabs, KEY_PREFIX.todos, KEY_PREFIX.notes].some((p) =>
     k.startsWith(p),
   );
+
+/** Staging written before revision guards existed: replaying it blind could undo later edits. */
+export class LegacyStagingError extends Error {
+  override readonly name = "LegacyStagingError";
+  readonly reason = "legacy_staging";
+  constructor() {
+    super("staged import has no baseRevs (written by an older version); not applied");
+  }
+}
 
 const StagingKey = v.pipe(
   v.string(),
@@ -74,8 +85,10 @@ export const StagingSchema = v.object({
     ),
   ),
   remove: v.array(StagingKey),
-  /** rev of each guarded key when staging was written (-1: absent). */
-  baseRevs: v.optional(v.record(v.string(), v.number()), () => ({})),
+  /** rev of each guarded key when staging was written (-1: absent). Missing = legacy staging. */
+  baseRevs: v.optional(v.record(v.string(), v.number())),
+  /** Keys already written (set) or removed by an earlier apply attempt, in order. */
+  progress: v.optional(v.array(v.string())),
   startedAt: v.number(),
 });
 
@@ -94,11 +107,39 @@ export interface BackupDeps {
   hasRunningOps?(): boolean;
 }
 
+/** Outcome of resolving a staged import. */
+export interface Resolution {
+  outcome: "none" | "applied" | "failed";
+  /** When failed: keys an earlier attempt had already written/removed (partial application). */
+  applied?: string[];
+  reason?: string;
+}
+
 export class BackupService {
+  /**
+   * True while `import:staging` may exist in this worker (set before it is written, cleared
+   * once it is applied or moved to `import:failed`). Mutating commands answer `busy` meanwhile.
+   */
+  private stagingOpen = false;
+
   constructor(
     private readonly ctx: BgContext,
     private readonly deps: BackupDeps = {},
   ) {}
+
+  /**
+   * Null when writes may proceed; otherwise why not. An open staged import is re-attempted first
+   * (it may have been a transient failure).
+   */
+  async blockingReason(): Promise<string | null> {
+    if (!this.stagingOpen) return null;
+    try {
+      await this.resolveStaged();
+    } catch (e) {
+      this.ctx.log.warn("[tabitat] staged import still unresolved", e);
+    }
+    return this.stagingOpen ? "an import is still being applied; try again shortly" : null;
+  }
 
   async exportBackup(): Promise<BackupFile> {
     return buildBackup(await this.ctx.repo.getAll(), this.ctx.ports.now());
@@ -128,20 +169,30 @@ export class BackupService {
     if (mode === "replace") {
       // 1. Reversible: a full session generation, then every existing workspace to the trash.
       await this.deps.takeGeneration?.();
-      const archived = buildBackup(existing, now).data.workspaces;
-      if (archived.length > 0) {
-        const trash = await repo.getTrash();
-        for (const w of archived) {
-          trash.items.push({
-            id: ports.newId(),
-            kind: "workspace",
-            deletedAt: now,
-            meta: w.meta,
-            tabs: w.tabs,
-          });
-        }
-        await repo.setMany({ [Keys.trash]: trash });
+      const backup = buildBackup(existing, now).data;
+      const archived = backup.workspaces;
+      const trash = await repo.getTrash();
+      const before = trash.items.length;
+      for (const w of archived) {
+        trash.items.push({
+          id: ports.newId(),
+          kind: "workspace",
+          deletedAt: now,
+          meta: w.meta,
+          tabs: w.tabs,
+        });
       }
+      // Notes and todo lists the import removes or overwrites are archived too (T4).
+      const touched = (key: string) => plan.remove.includes(key) || hasOwnKey(plan.set, key);
+      for (const [scope, note] of Object.entries(backup.notes)) {
+        if (note.content.trim() === "" || !touched(Keys.notes(scope))) continue;
+        trash.items.push({ id: ports.newId(), kind: "note", deletedAt: now, scope, note });
+      }
+      for (const [scope, list] of Object.entries(backup.todos)) {
+        if (list.items.length === 0 || !touched(Keys.todos(scope))) continue;
+        trash.items.push({ id: ports.newId(), kind: "todos", deletedAt: now, scope, list });
+      }
+      if (trash.items.length > before) await repo.setMany({ [Keys.trash]: trash });
       // 2. Windows showing a replaced workspace (surviving ids included) are detached: imported
       //    data stays closed until opened; the live tabs are adopted as Unsorted.
       const replaced = new Set(archived.map((w) => w.meta.id));
@@ -161,12 +212,27 @@ export class BackupService {
     for (const k of [...Object.keys(plan.set), ...plan.remove]) {
       if (isRevGuarded(k)) baseRevs[k] = revOf(ownGet(existing, k)) ?? -1;
     }
+    this.stagingOpen = true;
     await repo.setMany({
-      [Keys.importStaging]: { set: plan.set, remove: plan.remove, baseRevs, startedAt: now },
+      [Keys.importStaging]: {
+        set: plan.set,
+        remove: plan.remove,
+        baseRevs,
+        progress: [],
+        startedAt: now,
+      },
     });
-    const outcome = await this.resolveStaged();
-    if (outcome === "failed") {
-      throw new RpcError("internal", "the import could not be applied; nothing was replaced", true);
+    const res = await this.resolveStaged();
+    if (res.outcome === "failed") {
+      const applied = res.applied ?? [];
+      throw new RpcError(
+        "internal",
+        applied.length > 0
+          ? `the import was partially applied (${applied.length} records); details in import:failed`
+          : "the import could not be applied; nothing was changed",
+        true,
+        { partial: applied.length > 0, applied },
+      );
     }
     for (const w of detach) await this.adopt(w);
     return plan.report;
@@ -184,31 +250,44 @@ export class BackupService {
   }
 
   /**
-   * Resolves a staged import, if any: apply it (two attempts); if both fail, move it to
-   * `import:failed` (with the error) so normal operation continues. Throws only when even that
-   * move fails (the staged import then still blocks: init stays degraded).
+   * Resolves a staged import, if any: apply it (two attempts); if both fail — or it is legacy
+   * staging without revision guards — move it to `import:failed` (with the error, the reason and
+   * the keys already applied) so normal operation continues. Throws only when even that move
+   * fails (the staged import then still blocks writes; at init, init stays degraded).
    */
-  async resolveStaged(): Promise<"none" | "applied" | "failed"> {
+  async resolveStaged(): Promise<Resolution> {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return (await this.applyStaged()) ? "applied" : "none";
+        const applied = await this.applyStaged();
+        this.stagingOpen = false;
+        return { outcome: applied ? "applied" : "none" };
       } catch (e) {
         lastError = e;
         this.ctx.log.warn("[tabitat] applying staged import failed", attempt + 1, e);
+        if (e instanceof LegacyStagingError) break;
       }
     }
     const { repo, ports } = this.ctx;
     const raw = await repo.store.get(Keys.importStaging);
+    const progress =
+      isRecord(raw) && Array.isArray(raw.progress)
+        ? raw.progress.filter((k): k is string => typeof k === "string")
+        : [];
+    const reason = lastError instanceof LegacyStagingError ? lastError.reason : "apply_failed";
     await repo.setMany({
       [BgKeys.importFailed]: {
         staging: raw ?? null,
+        reason,
         error: lastError instanceof Error ? lastError.message : String(lastError),
+        partial: progress.length > 0,
+        applied: progress,
         at: ports.now(),
       },
     });
     await repo.remove(Keys.importStaging);
-    return "failed";
+    this.stagingOpen = false;
+    return { outcome: "failed", applied: progress, reason };
   }
 
   /**
@@ -225,6 +304,9 @@ export class BackupService {
       return false;
     }
     const staged = res.output;
+    if (staged.baseRevs === undefined) throw new LegacyStagingError();
+    const baseRevs = staged.baseRevs;
+    const done = new Set(staged.progress ?? []);
     const curIndexRaw = await repo.store.get<unknown>(Keys.wsIndex);
     const curIndex = Array.isArray(curIndexRaw)
       ? curIndexRaw.filter((id): id is string => isValidId(id))
@@ -240,17 +322,20 @@ export class BackupService {
     const newer = (k: string): boolean => {
       if (!isRevGuarded(k)) return false;
       const cur = revOf(ownGet(current, k));
-      return cur !== null && cur > (ownGet(staged.baseRevs, k) ?? -1);
+      return cur !== null && cur > (ownGet(baseRevs, k) ?? -1);
     };
     const set: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(staged.set)) {
+      if (done.has(k) && k !== Keys.wsIndex) continue; // written by an earlier attempt
       if (newer(k)) {
         this.ctx.log.warn("[tabitat] import replay keeps a newer record", k);
         continue;
       }
       set[k] = val;
     }
-    const remove = staged.remove.filter((k) => !hasOwnKey(staged.set, k) && !newer(k));
+    const remove = staged.remove.filter(
+      (k) => !hasOwnKey(staged.set, k) && !done.has(k) && !newer(k),
+    );
     // The index: the staged one plus any current workspace whose meta survives the replay
     // (created or edited after staging), so nothing becomes unreachable.
     if (hasOwnKey(set, Keys.wsIndex)) {
@@ -263,10 +348,22 @@ export class BackupService {
       const stagedIndex = set[Keys.wsIndex] as string[];
       set[Keys.wsIndex] = [...new Set([...stagedIndex, ...extra])];
     }
+    // Progress is recorded after each step so a later failure reports what was applied.
     await repo.setMany(set);
-    if (remove.length > 0) await repo.remove(remove);
+    const progress = [...done, ...Object.keys(set).filter((k) => !done.has(k))];
+    await repo.setMany({ [Keys.importStaging]: { ...staged, progress } });
+    if (remove.length > 0) {
+      await repo.remove(remove);
+      await repo.setMany({
+        [Keys.importStaging]: { ...staged, progress: [...progress, ...remove] },
+      });
+    }
     await this.reconcileWindows();
-    await repo.remove(Keys.importStaging);
+    // An earlier failed attempt of this same import may have set it aside: it is resolved now.
+    const failed = await repo.store.get<unknown>(BgKeys.importFailed);
+    const sameImport =
+      isRecord(failed) && isRecord(failed.staging) && failed.staging.startedAt === staged.startedAt;
+    await repo.remove(sameImport ? [Keys.importStaging, BgKeys.importFailed] : Keys.importStaging);
     return true;
   }
 

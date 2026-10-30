@@ -165,8 +165,9 @@ export function checkBackupLimits(input: unknown, bytes: number): string | null 
 }
 
 /**
- * Drops favicon URLs outside the favicon allowlist (cosmetic; older exports may carry them)
- * so they do not make an otherwise valid backup unimportable. Returns a copy when it changes.
+ * Drops favicon URLs outside the favicon allowlist and dangling `activeSavedTabId`s (both
+ * cosmetic; older exports may carry them) so they do not make an otherwise valid backup
+ * unimportable. Returns a copy when it changes.
  */
 function stripDisallowedFavicons(input: unknown): unknown {
   if (!isRec(input) || !isRec(input.data) || !Array.isArray(input.data.workspaces)) return input;
@@ -181,7 +182,14 @@ function stripDisallowedFavicons(input: unknown): unknown {
       const { favIconUrl: _drop, ...rest } = t;
       return rest;
     });
-    return { ...w, tabs: { ...w.tabs, tabs } };
+    const outTabs: Rec = { ...w.tabs, tabs };
+    // A dangling active-tab reference is cosmetic too: drop it rather than reject the file.
+    const active = w.tabs.activeSavedTabId;
+    if (active !== undefined && !tabs.some((t: unknown) => isRec(t) && t.id === active)) {
+      changed = true;
+      delete outTabs.activeSavedTabId;
+    }
+    return { ...w, tabs: outTabs };
   });
   return changed ? { ...input, data: { ...input.data, workspaces } } : input;
 }

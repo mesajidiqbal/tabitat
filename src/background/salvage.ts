@@ -37,10 +37,14 @@ export interface Salvaged<T> {
   dropped: unknown[];
 }
 
-const nonNegInt = (x: unknown): number | null =>
-  typeof x === "number" && Number.isInteger(x) && x >= 0 ? x : null;
-const finite = (x: unknown): number | null =>
-  typeof x === "number" && Number.isFinite(x) ? x : null;
+/**
+ * Numbers the schemas accept for revs and timestamps, produced from anything: a finite,
+ * non-negative number is floored; everything else becomes `fallback`. Salvage must never yield
+ * a value its own schema rejects (that would turn a repairable record into a quarantine).
+ */
+export function nonNegInt(x: unknown, fallback: number): number {
+  return typeof x === "number" && Number.isFinite(x) && x >= 0 ? Math.floor(x) : fallback;
+}
 
 /** A copy without `favIconUrl` when that is the only thing wrong (favicons are cosmetic). */
 function withoutFavicon(x: unknown): unknown {
@@ -86,13 +90,18 @@ function salvageItems<T extends { id: string }>(
 const hasItems = (raw: unknown, field: string): raw is Record<string, unknown> =>
   isRecord(raw) && Array.isArray(raw[field]);
 
+/**
+ * Keeps every valid tab (a bad favicon is stripped, a duplicate id re-assigned); a damaged
+ * `tabs` field yields an empty list (the original is in the corrupt copy). An active-tab
+ * reference that no longer points at a kept tab is cleared.
+ */
 export function salvageWorkspaceTabs(raw: unknown, now: number): Salvaged<WorkspaceTabs> | null {
-  if (!hasItems(raw, "tabs")) return null;
+  if (!isRecord(raw)) return null;
   const { value: tabs, dropped } = salvageItems<SavedTab>(raw.tabs, isSavedTab, withoutFavicon);
   const out: WorkspaceTabs = {
     tabs,
-    updatedAt: finite(raw.updatedAt) ?? now,
-    rev: (nonNegInt(raw.rev) ?? 0) + 1,
+    updatedAt: nonNegInt(raw.updatedAt, now),
+    rev: nonNegInt(raw.rev, 0) + 1,
   };
   if (typeof raw.activeSavedTabId === "string" && tabs.some((t) => t.id === raw.activeSavedTabId)) {
     out.activeSavedTabId = raw.activeSavedTabId;
@@ -111,8 +120,8 @@ export function salvageWorkspaceMeta(
   id: string,
   now: number,
 ): Salvaged<WorkspaceMeta> | null {
-  // Only a record that is recognisably this workspace (its own id) is repaired.
-  if (!isRecord(raw) || !isValidId(id) || raw.id !== id) return null;
+  // The storage key is authoritative for the id (a missing or damaged `id` is repaired).
+  if (!isRecord(raw) || !isValidId(id)) return null;
   const { value: resources, dropped } = salvageItems<SavedLink>(raw.resources, isSavedLink);
   const meta: WorkspaceMeta = {
     id,
@@ -120,10 +129,11 @@ export function salvageWorkspaceMeta(
     color: (COLORS.includes(raw.color as string) ? raw.color : "grey") as WorkspaceMeta["color"],
     kind: raw.kind === "unsorted" ? "unsorted" : "named",
     resources,
-    createdAt: finite(raw.createdAt) ?? now,
-    updatedAt: finite(raw.updatedAt) ?? now,
-    rev: (nonNegInt(raw.rev) ?? 0) + 1,
+    createdAt: nonNegInt(raw.createdAt, now),
+    updatedAt: nonNegInt(raw.updatedAt, now),
+    rev: nonNegInt(raw.rev, 0) + 1,
   };
+  if (raw.id !== id) dropped.push({ id: raw.id });
   if (typeof raw.emoji === "string") meta.emoji = raw.emoji;
   if (typeof raw.windowHint === "number" && Number.isInteger(raw.windowHint)) {
     meta.windowHint = raw.windowHint;
@@ -158,13 +168,13 @@ export function salvageRecentlyClosed(raw: unknown): Salvaged<ClosedTab[]> | nul
 export function salvageTodoList(raw: unknown): Salvaged<TodoList> | null {
   if (!hasItems(raw, "items")) return null;
   const { value: items, dropped } = salvageItems<Todo>(raw.items, isTodo);
-  return { value: { items, rev: (nonNegInt(raw.rev) ?? 0) + 1 }, dropped };
+  return { value: { items, rev: nonNegInt(raw.rev, 0) + 1 }, dropped };
 }
 
 export function salvageQuickLinks(raw: unknown): Salvaged<QuickLinks> | null {
   if (!hasItems(raw, "items")) return null;
   const { value: items, dropped } = salvageItems<QuickLink>(raw.items, isQuickLink);
-  return { value: { items, rev: (nonNegInt(raw.rev) ?? 0) + 1 }, dropped };
+  return { value: { items, rev: nonNegInt(raw.rev, 0) + 1 }, dropped };
 }
 
 /** Trash items one by one; a workspace item with a damaged tab list keeps its valid tabs. */

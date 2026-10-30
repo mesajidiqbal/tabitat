@@ -53,6 +53,9 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
     if (!meta) throw new RpcError("not_found", `workspace ${id} not found`);
     return meta;
   };
+  /** A workspace scope that still exists, else "global". */
+  const restoreScope = async (scope: string): Promise<string> =>
+    scope === "global" || (await repo.getWorkspaceMeta(scope)) ? scope : "global";
   const scopeOrThrow = async (scope: string): Promise<void> => {
     if (scope !== "global") await metaOrThrow(scope);
   };
@@ -347,6 +350,41 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
           [Keys.wsIndex]: [...index, id],
           [Keys.trash]: rest,
         });
+      } else if (item.kind === "note") {
+        // Into its scope (or "global" when that workspace is gone); never over other content.
+        const scope = await restoreScope(item.scope);
+        const cur = await repo.getNote(scope);
+        const content =
+          cur && cur.content.trim() !== "" && cur.content !== item.note.content
+            ? `${cur.content}\n\n${item.note.content}`
+            : item.note.content;
+        await repo.setMany({
+          [Keys.notes(scope)]: {
+            content,
+            updatedAt: ports.now(),
+            rev: (cur?.rev ?? 0) + 1,
+          } satisfies Note,
+          [Keys.trash]: rest,
+        });
+      } else if (item.kind === "todos") {
+        const scope = await restoreScope(item.scope);
+        const cur = await repo.getTodos(scope);
+        const have = cur?.items ?? [];
+        const taken = new Set(have.map((t) => t.id));
+        let order = have.reduce((m, t) => Math.max(m, t.order), -1);
+        const added = item.list.items.map((t) => {
+          let id = t.id;
+          while (taken.has(id)) id = ports.newId();
+          taken.add(id);
+          return { ...t, id, order: ++order };
+        });
+        await repo.setMany({
+          [Keys.todos(scope)]: {
+            items: [...have, ...added],
+            rev: (cur?.rev ?? 0) + 1,
+          } satisfies TodoList,
+          [Keys.trash]: rest,
+        });
       } else {
         const meta = await repo.getWorkspaceMeta(item.workspaceId);
         if (!meta) throw new RpcError("not_found", "the link's workspace no longer exists");
@@ -363,7 +401,8 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
       }
       return null;
     },
-    () => [Lane.trash, Lane.wsIndex, Lane.wsMeta],
+    // Restores may write any ws/notes/todos record: exclusive (rare, user-initiated).
+    () => [Lane.global],
   );
 
   router.register(
