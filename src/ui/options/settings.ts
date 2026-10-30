@@ -53,7 +53,7 @@ export function parseSettingsLoose(raw: unknown): Settings {
 /** Allowed ranges of the numeric controls (docs/PHASE3.md §5). */
 export const RANGES = {
   restoreLimit: { min: 10, max: 500, step: 10 },
-  suspendMinutes: { min: 5, max: 720, step: 5 },
+  suspendMinutes: { min: 5, max: 720, step: 1 },
   snapshotEvery: { min: 1, max: 60, step: 1 },
   snapshotKeep: { min: 3, max: 30, step: 1 },
   workMin: { min: 1, max: 180, step: 1 },
@@ -61,6 +61,15 @@ export const RANGES = {
   longBreakMin: { min: 1, max: 120, step: 1 },
   rounds: { min: 1, max: 12, step: 1 },
 } as const;
+
+/**
+ * Whether a queued settings patch may still be sent. `baseRev`: the rev the patch was made
+ * against (known when it was queued); `ackedRev`: the rev of our own last acknowledged write;
+ * `currentRev`: the latest rev seen. A rev past both came from somewhere else (another surface
+ * or a sync pull) after the patch was made: the patch is stale and must not overwrite it.
+ */
+export const shouldSend = (baseRev: number, ackedRev: number, currentRev: number): boolean =>
+  currentRev <= Math.max(baseRev, ackedRev);
 
 /** Parses a typed whole number; null when empty, fractional, signed or not numeric. */
 export function parseWhole(text: string): number | null {

@@ -7,6 +7,7 @@
 
 import { isValidId } from "../core/model/id";
 import {
+  fitSettingsWhitelist,
   isClosedTab,
   isQuickLink,
   isSavedLink,
@@ -15,6 +16,7 @@ import {
   isTrashItem,
   isWorkspaceMeta,
   isWorkspaceTabs,
+  parseSettings,
 } from "../core/model/schemas";
 import type {
   ClosedTab,
@@ -22,6 +24,7 @@ import type {
   QuickLinks,
   SavedLink,
   SavedTab,
+  Settings,
   Todo,
   TodoList,
   Trash,
@@ -200,4 +203,19 @@ export function salvageTrash(raw: unknown, now: number): Salvaged<Trash> | null 
     dropped.push(x);
   }
   return { value: { items }, dropped };
+}
+
+/**
+ * Settings written before the whitelist limits existed (a longer list, or over-long entries):
+ * keeps the first LIMITS.whitelistHosts valid entries and drops the rest, instead of
+ * quarantining every setting. Any other invalid field still quarantines the record (null).
+ */
+export function salvageSettings(raw: unknown): Salvaged<Settings> | null {
+  const fit = fitSettingsWhitelist(raw);
+  if (!fit) return null;
+  try {
+    return { value: parseSettings(fit.raw), dropped: fit.dropped };
+  } catch {
+    return null;
+  }
 }

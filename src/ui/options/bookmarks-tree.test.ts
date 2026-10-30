@@ -5,10 +5,15 @@ import {
   buildFolderTree,
   collectSelection,
   defaultExpanded,
-  destinationOverflow,
   folderState,
+  folderStates,
+  importCalls,
+  normalizeEntries,
+  previewImport,
   setFolderChecked,
   suggestedWorkspaceName,
+  sumWarnings,
+  topSelected,
 } from "./bookmarks-tree";
 
 const link = (id: string, url: string, title = id): BookmarkNode => ({ id, title, url });
@@ -121,21 +126,126 @@ describe("selection", () => {
   });
 
   it("names the one-workspace prefill after the first topmost selected folder", () => {
-    expect(suggestedWorkspaceName(tree, new Set())).toBe("Imported");
-    expect(suggestedWorkspaceName(tree, new Set(["10"]))).toBe("Work");
-    expect(suggestedWorkspaceName(tree, new Set(["1", "10", "2"]))).toBe("Bookmarks bar");
+    expect(suggestedWorkspaceName(tree, new Set(), "Imported")).toBe("Imported");
+    expect(suggestedWorkspaceName(tree, new Set(["10"]), "Imported")).toBe("Work");
+    expect(suggestedWorkspaceName(tree, new Set(["1", "10", "2"]), "Imported")).toBe(
+      "Bookmarks bar",
+    );
   });
 });
 
-describe("destinationOverflow", () => {
-  it("quick links count existing items against the total cap", () => {
-    expect(destinationOverflow("quicklinks", 30, 0)).toBe(0);
-    expect(destinationOverflow("quicklinks", 30, 90)).toBe(20);
-    expect(destinationOverflow("quicklinks", 30, 500)).toBe(30);
+describe("folderStates", () => {
+  it("computes every folder's state in one pass", () => {
+    const tree = buildFolderTree(ROOT);
+    const m = folderStates(tree, new Set(["10", "100"]));
+    expect(Object.fromEntries(m)).toEqual({ "1": "some", "10": "all", "100": "all", "2": "none" });
+  });
+});
+
+describe("normalizeEntries", () => {
+  it("cuts names, titles and depth to the RPC limits and counts shortened paths", () => {
+    const deep = Array.from({ length: 40 }, (_, i) => `f${i}`);
+    const out = normalizeEntries([
+      { path: ["ok"], title: "t", url: "https://a.example/" },
+      { path: ["x".repeat(250)], title: "y".repeat(2500), url: "https://b.example/" },
+      { path: deep, title: "d", url: "https://c.example/" },
+    ]);
+    expect(out.shortened).toBe(2);
+    expect(out.entries[0]).toEqual({ path: ["ok"], title: "t", url: "https://a.example/" });
+    expect(out.entries[1]?.path[0]).toHaveLength(200);
+    expect(out.entries[1]?.title).toHaveLength(2000);
+    expect(out.entries[2]?.path).toEqual(deep.slice(0, 32));
+  });
+});
+
+describe("importCalls", () => {
+  const tree = buildFolderTree(ROOT);
+  const opts = { name: "Mine", color: "blue" as const, fallbackName: "Imported" };
+
+  it("quick links and one workspace send one call with every selected link", () => {
+    const sel = setFolderChecked(tree, new Set(), "1", true);
+    const q = importCalls(tree, sel, { ...opts, dest: "quicklinks" });
+    expect(q.calls).toHaveLength(1);
+    expect(q.calls[0]?.target).toEqual({ kind: "quicklinks" });
+    expect(q.calls[0]?.entries).toHaveLength(4);
+    const w = importCalls(tree, sel, { ...opts, dest: "workspace" });
+    expect(w.calls[0]?.target).toEqual({ kind: "workspace", name: "Mine", color: "blue" });
   });
 
-  it("one workspace is capped per workspace; per-folder is not summed", () => {
-    expect(destinationOverflow("workspace", LIMITS.linksPerWorkspace + 3, 0)).toBe(3);
-    expect(destinationOverflow("workspacePerFolder", 5000, 0)).toBe(0);
+  it("per folder with one topmost folder: one call rooted at it", () => {
+    const sel = setFolderChecked(tree, new Set(), "1", true);
+    expect(topSelected(tree, sel).map((f) => f.id)).toEqual(["1"]);
+    const r = importCalls(tree, sel, { ...opts, dest: "workspacePerFolder" });
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0]?.target).toEqual({
+      kind: "workspacePerFolder",
+      color: "blue",
+      root: ["Bookmarks bar"],
+    });
+  });
+
+  it("per folder with several topmost folders: one workspace per folder", () => {
+    const sel = new Set(["10", "100", "2"]);
+    const r = importCalls(tree, sel, { ...opts, dest: "workspacePerFolder" });
+    expect(r.calls.map((c) => c.target)).toEqual([
+      { kind: "workspace", name: "Work", color: "blue" },
+      { kind: "workspace", name: "Other bookmarks", color: "blue" },
+    ]);
+    expect(r.calls[0]?.entries.map((e) => e.url)).toEqual([
+      "https://b.example/",
+      "file:///tmp/c.html",
+      "ftp://d.example/",
+    ]);
+    expect(r.calls[1]?.entries.map((e) => e.url)).toEqual(["http://e.example/"]);
+  });
+
+  it("nothing selected: no calls", () => {
+    expect(importCalls(tree, new Set(), { ...opts, dest: "quicklinks" }).calls).toEqual([]);
+  });
+});
+
+describe("previewImport", () => {
+  const tree = buildFolderTree(ROOT);
+
+  it("runs the planner against the current quick links (dedupe and room)", () => {
+    const sel = setFolderChecked(tree, new Set(), "1", true);
+    const { calls } = importCalls(tree, sel, {
+      dest: "quicklinks",
+      name: "",
+      color: "blue",
+      fallbackName: "Imported",
+    });
+    const existing = [
+      "https://a.example/",
+      ...Array.from({ length: LIMITS.quickLinks - 2 }, (_, i) => `https://q.example/${i}`),
+    ];
+    const p = previewImport(calls, 4, existing);
+    expect(p.added).toBe(1);
+    expect(p.skipped).toBe(3);
+    expect(p.counts).toEqual({ duplicates: 1, quicklinks_limit: 2 });
+  });
+
+  it("sums several calls", () => {
+    const { calls } = importCalls(tree, new Set(["10", "100", "2"]), {
+      dest: "workspacePerFolder",
+      name: "",
+      color: "blue",
+      fallbackName: "Imported",
+    });
+    expect(previewImport(calls, 4, [])).toEqual({ added: 4, skipped: 0, counts: {} });
+  });
+});
+
+describe("sumWarnings", () => {
+  it("sums known codes and keeps unknown ones raw", () => {
+    expect(
+      sumWarnings([
+        ["duplicates:2", "odd"],
+        ["duplicates:1", "links_limit:4"],
+      ]),
+    ).toEqual({
+      counts: { duplicates: 3, links_limit: 4 },
+      other: ["odd"],
+    });
   });
 });

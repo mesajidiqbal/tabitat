@@ -5,6 +5,7 @@
 import type { ImportReport } from "../../messaging/commands";
 import { newId as defaultNewId } from "../model/id";
 import {
+  fitSettingsWhitelist,
   isNote,
   isQuickLink,
   isQuickLinks,
@@ -85,11 +86,22 @@ function salvageQuickLinks(raw: unknown): QuickLinks {
 }
 
 function safeSettings(raw: unknown): Settings {
-  try {
-    return parseSettings(raw ?? {});
-  } catch {
-    return structuredClone(DEFAULT_SETTINGS);
+  for (const candidate of [raw ?? {}, fitSettingsWhitelist(raw)?.raw]) {
+    if (candidate === undefined) continue;
+    try {
+      return parseSettings(candidate);
+    } catch {
+      // next candidate (a whitelist cut to the limits), else the defaults
+    }
   }
+  return structuredClone(DEFAULT_SETTINGS);
+}
+
+/** An older export's whitelist over the current limits is cut, not a reason to reject the file. */
+function fitBackupWhitelist(input: unknown): unknown {
+  if (!isRec(input) || !isRec(input.data)) return input;
+  const fit = fitSettingsWhitelist(input.data.settings);
+  return fit ? { ...input, data: { ...input.data, settings: fit.raw } } : input;
 }
 
 /** Builds a backup from a raw storage.local map. Invalid records are skipped or salvaged. */
@@ -196,7 +208,7 @@ function stripDisallowedFavicons(input: unknown): unknown {
 
 /** Validates an untrusted backup (URL and id policy included). Throws SchemaError. */
 export function validateBackup(input: unknown): BackupFile {
-  return parseBackupFile(stripDisallowedFavicons(input));
+  return parseBackupFile(fitBackupWhitelist(stripDisallowedFavicons(input)));
 }
 
 // ------------------------------------------------------------------ import

@@ -18,7 +18,8 @@ export interface BookmarkInput {
 export type BookmarkTarget =
   | { kind: "quicklinks" }
   | { kind: "workspace"; name: string }
-  | { kind: "workspacePerFolder" };
+  /** `root`: the selected folder's path (omitted = common root of the entries' paths). */
+  | { kind: "workspacePerFolder"; root?: readonly string[] };
 
 export interface PlannedLink {
   url: string;
@@ -78,13 +79,25 @@ interface Bucket {
   entries: BookmarkInput[];
 }
 
-/** One bucket per first-level folder under the common root; root-level entries get their own. */
-function bucketsPerFolder(entries: readonly BookmarkInput[], all: readonly BookmarkInput[]) {
-  const root = commonRoot(all);
+function isUnder(path: readonly string[], root: readonly string[]): boolean {
+  return path.length >= root.length && root.every((seg, i) => path[i] === seg);
+}
+
+/**
+ * One bucket per first-level folder under `root` (the selected folder, else the common root of
+ * all entries); entries directly at the root, or (defensively) not under it, share a bucket named
+ * after the root. Same-named sibling folders merge into one bucket (decided, PHASE3 §6).
+ */
+function bucketsPerFolder(
+  entries: readonly BookmarkInput[],
+  all: readonly BookmarkInput[],
+  selected: readonly string[] | undefined,
+) {
+  const root = selected ?? commonRoot(all);
   const rootName = importName(root.at(-1));
   const buckets = new Map<string, Bucket>();
   for (const e of entries) {
-    const folder = e.path[root.length];
+    const folder = isUnder(e.path, root) ? e.path[root.length] : undefined;
     const key = folder === undefined ? "root" : `f:${folder}`;
     let b = buckets.get(key);
     if (!b) {
@@ -158,7 +171,7 @@ export function planBookmarkImport(
     const buckets =
       target.kind === "workspace"
         ? [{ name: importName(target.name), entries: valid }]
-        : bucketsPerFolder(valid, entries);
+        : bucketsPerFolder(valid, entries, target.root);
     for (const [i, b] of buckets.entries()) {
       if (i >= LIMITS.importWorkspaces) {
         // Counts dropped folders; their entries are skipped (skipped = entries - added).

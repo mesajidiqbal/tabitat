@@ -1,9 +1,13 @@
 /**
- * Actions of a TabRow: hover / focus-within icon buttons and the keyboard-only menu
- * (ContextMenu / Shift+F10) that lists every action, including menu-only ones.
+ * Actions of a TabRow: hover / focus-within icon buttons plus a visible "…" overflow button that
+ * opens a menu of every action, including menu-only ones. The same menu opens from the keyboard
+ * (ContextMenu / Shift+F10) and on right-click of the row (`useRowMenu`).
  */
 import type { ComponentChildren, Ref } from "preact";
+import { useRef } from "preact/hooks";
 import { t } from "@/i18n";
+import { IconMore } from "../icons";
+import c from "./controls.module.css";
 import { IconButton } from "./IconButton";
 import { Kbd } from "./Kbd";
 import { Menu } from "./Menu";
@@ -33,6 +37,23 @@ export function rowShortcuts(actions: readonly RowAction[]): string {
   ].join(" ");
 }
 
+/**
+ * The row menu's trigger ref and openers: `open()` for the menu keys, `onContextMenu` for a
+ * right-click on the row (replaces the browser menu). Both do nothing when `enabled` is false.
+ */
+export function useRowMenu(enabled: boolean) {
+  const menuRef = useRef<HTMLButtonElement | null>(null);
+  const open = () => {
+    if (enabled) menuRef.current?.click();
+  };
+  const onContextMenu = (e: MouseEvent) => {
+    if (!enabled) return;
+    e.preventDefault();
+    if (menuRef.current?.getAttribute("aria-expanded") !== "true") open();
+  };
+  return { menuRef, open, onContextMenu };
+}
+
 export function RowActions(p: {
   actions: RowAction[];
   /** Row title (menu label). */
@@ -44,32 +65,28 @@ export function RowActions(p: {
   if (p.actions.length === 0) return null;
   const buttons = p.actions.filter((a) => !a.menuOnly);
   return (
-    <>
-      {buttons.length > 0 && (
-        <span class={s.actions}>
-          {buttons.map((a) => (
-            <IconButton
-              key={a.label}
-              label={a.label}
-              icon={a.icon}
-              tabIndex={-1}
-              danger={a.danger}
-              disabled={p.disabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                a.run();
-              }}
-            />
-          ))}
-        </span>
-      )}
+    <span class={s.actions}>
+      {buttons.map((a) => (
+        <IconButton
+          key={a.label}
+          label={a.label}
+          icon={a.icon}
+          tabIndex={-1}
+          danger={a.danger}
+          disabled={p.disabled}
+          onClick={(e) => {
+            e.stopPropagation();
+            a.run();
+          }}
+        />
+      ))}
       <Menu
         label={t("rowActions", p.title)}
-        trigger={null}
-        wrapClass={s.menuAnchor}
-        triggerClass={s.menuTrigger}
+        trigger={<IconMore size={14} />}
+        triggerClass={c.iconBtn}
         triggerRef={p.menuRef}
         tabIndex={-1}
+        disabled={p.disabled}
         returnFocus={p.returnFocus}
         items={p.actions.map((a) => ({
           label: a.label,
@@ -80,6 +97,6 @@ export function RowActions(p: {
           onSelect: a.run,
         }))}
       />
-    </>
+    </span>
   );
 }

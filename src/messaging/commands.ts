@@ -50,7 +50,11 @@ export interface BookmarkEntry {
 export type ImportTarget =
   | { kind: "quicklinks" }
   | { kind: "workspace"; name: string; color: Color }
-  | { kind: "workspacePerFolder"; color: Color };
+  /**
+   * `root`: the selected folder's path; first-level folders under it become workspaces and
+   * entries directly under it go to a workspace named after it. Omitted = inferred common root.
+   */
+  | { kind: "workspacePerFolder"; color: Color; root?: string[] };
 export interface ImportBookmarksReport {
   added: number;
   skipped: number;

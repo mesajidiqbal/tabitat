@@ -1,7 +1,8 @@
 /** Folder checkbox tree for the bookmarks import (folders only, recursive link counts). */
+import { useMemo } from "preact/hooks";
 import { t } from "@/i18n";
 import { IconChevronDown, IconChevronRight } from "../icons";
-import { type FolderNode, folderState } from "./bookmarks-tree";
+import { type FolderNode, type FolderState, folderStates } from "./bookmarks-tree";
 import s from "./options.module.css";
 
 export interface FolderTreeProps {
@@ -12,8 +13,14 @@ export interface FolderTreeProps {
   onExpand: (id: string) => void;
 }
 
-function Folder({ node, ...p }: FolderTreeProps & { node: FolderNode }) {
-  const state = folderState(node, p.selection);
+type FolderProps = FolderTreeProps & {
+  node: FolderNode;
+  /** Every folder's state, computed once per selection change by FolderTree. */
+  states: ReadonlyMap<string, FolderState>;
+};
+
+function Folder({ node, ...p }: FolderProps) {
+  const state = p.states.get(node.id) ?? "none";
   const open = p.expanded.has(node.id);
   const title = node.title || t("optBmUntitled");
   const count = node.totalLinks;
@@ -59,10 +66,11 @@ function Folder({ node, ...p }: FolderTreeProps & { node: FolderNode }) {
 }
 
 export function FolderTree(p: FolderTreeProps) {
+  const states = useMemo(() => folderStates(p.nodes, p.selection), [p.nodes, p.selection]);
   return (
     <ul class={s.tree} aria-label={t("optBmFolders")}>
       {p.nodes.map((n) => (
-        <Folder key={n.id} node={n} {...p} />
+        <Folder key={n.id} node={n} {...p} states={states} />
       ))}
     </ul>
   );

@@ -3,12 +3,17 @@
  * (placeholders unwrapped), a ring of `settings.sessions.keep` (default 10) under
  * `sessions:index` + `sessions:gen:<n>`, and restore of any generation into a new window.
  * Restore only creates tabs (plus removes the blank tab of the new window): no op record needed.
+ * `recovery:hint` upkeep (PHASE3 §1): removed when its generation leaves the ring, and after
+ * any non-startup generation write once every window of the hint's generation is matched again
+ * (e.g. a delayed browser session restore finished).
  */
 
-import type { SessionGeneration, SessionWindow } from "../core/model/types";
+import type { SessionGeneration, SessionWindow, WindowState } from "../core/model/types";
 import { Keys, LIMITS } from "../core/model/types";
 import { snapshotWindow } from "../core/ops/snapshot";
 import { planOpening } from "../core/ops/switch-planner";
+import type { LiveWindow } from "../core/ops/types";
+import { countUnmatchedSessionWindows } from "../core/reconcile/matcher";
 import { RpcError } from "../messaging/errors";
 import type { BgContext } from "./context";
 import { BgKeys, type RecoveryHint } from "./keys";
@@ -41,10 +46,12 @@ export class SessionGuard {
 
   /**
    * Writes a new generation. Skipped (null) when every window is empty, or when nothing changed
-   * since the last generation unless `force`.
+   * since the last generation unless `force`. Unless `startup` (the init-time snapshot, taken
+   * while a browser session restore may still be in progress), a written generation also
+   * removes `recovery:hint` when every window of the hint's generation is matched by now.
    */
-  take(opts: { force?: boolean } = {}): Promise<number | null> {
-    const run = this.chain.then(() => this.takeNow(opts.force === true));
+  take(opts: { force?: boolean; startup?: boolean } = {}): Promise<number | null> {
+    const run = this.chain.then(() => this.takeNow(opts.force === true, opts.startup === true));
     this.chain = run.catch(() => {});
     return run;
   }
@@ -67,7 +74,7 @@ export class SessionGuard {
     return run;
   }
 
-  private async takeNow(force: boolean): Promise<number | null> {
+  private async takeNow(force: boolean, startup: boolean): Promise<number | null> {
     const { repo } = this.ctx;
     const windows = await this.ctx.getAllWindows();
     const states = await repo.listWindowStates();
@@ -77,7 +84,35 @@ export class SessionGuard {
       workspaceId: states.get(w.id)?.activeWorkspaceId ?? null,
       tabs: snapshotWindow(w, null, opts).tabs,
     }));
-    return this.write(genWindows, force);
+    const id = await this.write(genWindows, force);
+    if (id !== null && !startup) {
+      await this.clearMatchedHint(windows, states).catch((e: unknown) =>
+        this.ctx.log.warn("[tabitat] recovery hint check failed", e),
+      );
+    }
+    return id;
+  }
+
+  /** Removes `recovery:hint` when its generation (still in the ring) is fully matched by `live`. */
+  private async clearMatchedHint(
+    live: readonly LiveWindow[],
+    states: ReadonlyMap<number, WindowState>,
+  ): Promise<void> {
+    const { repo, ports } = this.ctx;
+    const hint = await ports.local.get<RecoveryHint>(BgKeys.recoveryHint);
+    if (hint === undefined || typeof hint.generation !== "number") return;
+    if (!(await repo.getSessionsIndex()).includes(hint.generation)) return;
+    const gen = await repo.getSessionGen(hint.generation);
+    if (!gen) return;
+    const owned = new Map<string, number>(); // workspace -> the live window it is active in
+    for (const w of live) {
+      const ws = states.get(w.id)?.activeWorkspaceId;
+      if (ws) owned.set(ws, w.id);
+    }
+    const opts = { placeholderBase: this.ctx.placeholderBase };
+    if (countUnmatchedSessionWindows(gen, live, owned, opts) === 0) {
+      await repo.remove(BgKeys.recoveryHint);
+    }
   }
 
   private async write(genWindows: SessionWindow[], force: boolean): Promise<number | null> {

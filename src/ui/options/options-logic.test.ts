@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, LIMITS } from "@/core/model/types";
-import { clamp, formatBytes, parseSettingsLoose, parseWhole, RANGES, resetPatch } from "./settings";
+import {
+  clamp,
+  formatBytes,
+  parseSettingsLoose,
+  parseWhole,
+  RANGES,
+  resetPatch,
+  shouldSend,
+} from "./settings";
 import { parseSyncStatus, syncErrorKey } from "./sync-status";
 import { parseWhitelist, validHost } from "./whitelist";
 
@@ -109,5 +117,26 @@ describe("sync status", () => {
     expect(syncErrorKey("unavailable")).toBe("optSyncErrUnavailable");
     expect(syncErrorKey("invalid_remote")).toBe("optSyncErrInvalidRemote");
     expect(syncErrorKey("toString")).toBe("optSyncErrUnknown");
+  });
+});
+
+describe("shouldSend (queued settings patches)", () => {
+  it("sends when nothing changed since the patch was made", () => {
+    expect(shouldSend(5, -1, 5)).toBe(true);
+  });
+
+  it("sends after our own earlier write advanced the rev", () => {
+    // queued at 5, our previous patch was acknowledged as 6
+    expect(shouldSend(5, 6, 6)).toBe(true);
+  });
+
+  it("drops a patch overtaken by a change from elsewhere", () => {
+    expect(shouldSend(5, -1, 6)).toBe(false);
+    // our write made it 6, then another surface / a sync pull made it 7
+    expect(shouldSend(5, 6, 7)).toBe(false);
+  });
+
+  it("a patch made after the remote change is fine", () => {
+    expect(shouldSend(7, 6, 7)).toBe(true);
   });
 });

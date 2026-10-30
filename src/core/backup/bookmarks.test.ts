@@ -134,6 +134,49 @@ describe("planBookmarkImport", () => {
     expect(plan.workspaces.map((w) => w.name)).toEqual(["Imported", "Bar"]);
   });
 
+  it("per folder with a selected root: an empty selected ancestor keeps its direct children", () => {
+    const plan = planBookmarkImport(
+      [
+        bm(["Bookmarks bar", "Dev", "Docs", "Deep"], "https://d1.example/"),
+        bm(["Bookmarks bar", "Dev", "Docs", "Deep"], "https://d2.example/"),
+      ],
+      { kind: "workspacePerFolder", root: ["Bookmarks bar", "Dev"] },
+      none,
+    );
+    expect(plan.workspaces.map((w) => [w.name, w.links.length])).toEqual([["Docs", 2]]);
+    // without the root, the inferred common root is the deepest folder
+    const inferred = planBookmarkImport(
+      [bm(["Bookmarks bar", "Dev", "Docs", "Deep"], "https://d1.example/")],
+      { kind: "workspacePerFolder" },
+      none,
+    );
+    expect(inferred.workspaces.map((w) => w.name)).toEqual(["Deep"]);
+  });
+
+  it("per folder with a selected root: root-level links (and strays) go to a workspace named after it", () => {
+    const plan = planBookmarkImport(
+      [
+        bm(["Bar", "Dev"], "https://r1.example/"),
+        bm(["Bar", "Dev", "Tools"], "https://t1.example/"),
+        bm(["Other"], "https://stray.example/"),
+        bm(["Bar"], "https://above.example/"),
+      ],
+      { kind: "workspacePerFolder", root: ["Bar", "Dev"] },
+      none,
+    );
+    expect(plan.workspaces.map((w) => [w.name, w.links.map((l) => l.url)])).toEqual([
+      ["Dev", ["https://r1.example/", "https://stray.example/", "https://above.example/"]],
+      ["Tools", ["https://t1.example/"]],
+    ]);
+    expect(plan).toMatchObject({ added: 4, skipped: 0 });
+    const top = planBookmarkImport(
+      [bm([], "https://loose.example/"), bm(["A"], "https://a.example/")],
+      { kind: "workspacePerFolder", root: [] },
+      none,
+    );
+    expect(top.workspaces.map((w) => w.name)).toEqual(["Imported", "A"]);
+  });
+
   it("per folder: at most LIMITS.importWorkspaces workspaces", () => {
     const entries = Array.from({ length: LIMITS.importWorkspaces + 2 }, (_, i) =>
       bm(["Root", `F${i}`], `https://f.example/${i}`),

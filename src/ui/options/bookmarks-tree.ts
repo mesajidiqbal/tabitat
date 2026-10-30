@@ -4,9 +4,10 @@
  * Only `http(s)`, `file` and `ftp` URLs are importable (`classifyUrl === "placeholder"`); the worker
  * validates again.
  */
-import { LIMITS } from "@/core/model/types";
+import { planBookmarkImport } from "@/core/backup/bookmarks";
+import { type Color, LIMITS } from "@/core/model/types";
 import { classifyUrl } from "@/core/ops/url";
-import type { BookmarkEntry } from "@/messaging/commands";
+import type { BookmarkEntry, ImportTarget } from "@/messaging/commands";
 
 export interface BookmarkNode {
   id: string;
@@ -112,12 +113,29 @@ export function setFolderChecked(
 }
 
 /** "all": the folder and every subfolder selected; "none": nothing selected; else "some". */
-export function folderState(node: FolderNode, selection: ReadonlySet<string>): FolderState {
-  const states = node.children.map((c) => folderState(c, selection));
-  const own = selection.has(node.id);
-  if (own && states.every((s) => s === "all")) return "all";
-  if (!own && states.every((s) => s === "none")) return "none";
-  return "some";
+export const folderState = (node: FolderNode, selection: ReadonlySet<string>): FolderState =>
+  folderStates([node], selection).get(node.id) ?? "none";
+
+/** Every folder's state in one bottom-up pass (the tree renders from this map). */
+export function folderStates(
+  tree: readonly FolderNode[],
+  selection: ReadonlySet<string>,
+): Map<string, FolderState> {
+  const out = new Map<string, FolderState>();
+  const visit = (node: FolderNode): FolderState => {
+    const states = node.children.map(visit);
+    const own = selection.has(node.id);
+    const state: FolderState =
+      own && states.every((x) => x === "all")
+        ? "all"
+        : !own && states.every((x) => x === "none")
+          ? "none"
+          : "some";
+    out.set(node.id, state);
+    return state;
+  };
+  for (const f of tree) visit(f);
+  return out;
 }
 
 /** Top-level folders start expanded. */
@@ -166,33 +184,169 @@ export function collectSelection(
   };
 }
 
-/** Name of the first topmost selected folder (the "One workspace" prefill); "Imported" if none. */
+/** Selected folders without a selected ancestor, in tree order. */
+export function topSelected(
+  tree: readonly FolderNode[],
+  selection: ReadonlySet<string>,
+): FolderNode[] {
+  const out: FolderNode[] = [];
+  const visit = (nodes: readonly FolderNode[]) => {
+    for (const f of nodes) {
+      if (selection.has(f.id)) out.push(f);
+      else visit(f.children);
+    }
+  };
+  visit(tree);
+  return out;
+}
+
+/** Name of the first topmost selected folder (the "One workspace" prefill); `fallback` if none. */
 export function suggestedWorkspaceName(
   tree: readonly FolderNode[],
   selection: ReadonlySet<string>,
+  fallback: string,
 ): string {
-  const top = (nodes: readonly FolderNode[]): FolderNode | null => {
-    for (const f of nodes) {
-      if (selection.has(f.id)) return f;
-      const hit = top(f.children);
-      if (hit) return hit;
-    }
-    return null;
-  };
-  return top(tree)?.title || "Imported";
+  return topSelected(tree, selection)[0]?.title || fallback;
 }
 
 export type DestinationKind = "quicklinks" | "workspace" | "workspacePerFolder";
 
-/** How many of `count` links the destination cannot take (quick links: LIMITS.quickLinks total). */
-export function destinationOverflow(
-  kind: DestinationKind,
-  count: number,
-  existingQuickLinks: number,
-): number {
-  if (kind === "quicklinks") {
-    return Math.max(0, count - Math.max(0, LIMITS.quickLinks - existingQuickLinks));
+/** RPC schema limits of `import.bookmarks` entries (src/messaging/schemas.ts). */
+export const ENTRY_LIMITS = { name: 200, title: 2000, depth: 32 } as const;
+
+/** A folder path within the schema limits: names cut to 200 characters, at most 32 deep. */
+export const fitPath = (path: readonly string[]): string[] =>
+  path.slice(0, ENTRY_LIMITS.depth).map((n) => n.slice(0, ENTRY_LIMITS.name).trim());
+
+/**
+ * Entries within the schema limits, so one odd bookmark cannot reject the whole import: folder
+ * names cut to 200 characters, titles to 2000, paths to 32 folders. `shortened` counts the
+ * entries whose folder path changed.
+ */
+export function normalizeEntries(entries: readonly BookmarkEntry[]): {
+  entries: BookmarkEntry[];
+  shortened: number;
+} {
+  let shortened = 0;
+  const out = entries.map((e) => {
+    const path = fitPath(e.path);
+    if (path.length !== e.path.length || path.some((n, i) => n !== e.path[i])) shortened++;
+    return { path, title: e.title.slice(0, ENTRY_LIMITS.title), url: e.url };
+  });
+  return { entries: out, shortened };
+}
+
+/** One `import.bookmarks` call. */
+export interface ImportCall {
+  entries: BookmarkEntry[];
+  target: ImportTarget;
+}
+
+/**
+ * The `import.bookmarks` calls for a selection (docs/PHASE3.md §6):
+ * - quick links / one workspace: one call with every selected link;
+ * - one workspace per folder with ONE topmost selected folder: one `workspacePerFolder` call
+ *   rooted at it (its direct subfolders become workspaces, its own links one named after it);
+ * - with SEVERAL topmost selected folders: one `workspace` call per topmost folder (each becomes
+ *   one workspace holding every selected link beneath it), at most LIMITS.importWorkspaces.
+ * `name` is the typed one-workspace name; `fallbackName` names untitled folders.
+ */
+export function importCalls(
+  tree: readonly FolderNode[],
+  selection: ReadonlySet<string>,
+  opts: { dest: DestinationKind; name: string; color: Color; fallbackName: string },
+): { calls: ImportCall[]; shortened: number; droppedFolders: number } {
+  const all = normalizeEntries(collectSelection(tree, selection).entries);
+  const { entries, shortened } = all;
+  if (entries.length === 0) return { calls: [], shortened, droppedFolders: 0 };
+  if (opts.dest === "quicklinks") {
+    return { calls: [{ entries, target: { kind: "quicklinks" } }], shortened, droppedFolders: 0 };
   }
-  if (kind === "workspace") return Math.max(0, count - LIMITS.linksPerWorkspace);
-  return 0;
+  if (opts.dest === "workspace") {
+    const target: ImportTarget = { kind: "workspace", name: opts.name.trim(), color: opts.color };
+    return { calls: [{ entries, target }], shortened, droppedFolders: 0 };
+  }
+  const tops = topSelected(tree, selection);
+  const only = tops[0];
+  if (tops.length === 1 && only) {
+    const target: ImportTarget = {
+      kind: "workspacePerFolder",
+      color: opts.color,
+      root: fitPath(only.path),
+    };
+    return { calls: [{ entries, target }], shortened, droppedFolders: 0 };
+  }
+  const calls: ImportCall[] = [];
+  let budget = entries.length; // the LIMITS.importEntries cap applies to the whole selection
+  for (const top of tops.slice(0, LIMITS.importWorkspaces)) {
+    const under = normalizeEntries(collectSelection([top], selection).entries).entries.slice(
+      0,
+      budget,
+    );
+    budget -= under.length;
+    if (under.length === 0) continue;
+    const name = top.title.slice(0, ENTRY_LIMITS.name).trim() || opts.fallbackName;
+    calls.push({ entries: under, target: { kind: "workspace", name, color: opts.color } });
+  }
+  return {
+    calls,
+    shortened,
+    droppedFolders: Math.max(0, tops.length - LIMITS.importWorkspaces),
+  };
+}
+
+/** Import warning codes (`<code>:<count>`, src/core/backup/bookmarks.ts). */
+export const WARNING_CODES = [
+  "unsupported",
+  "duplicates",
+  "entries_limit",
+  "quicklinks_limit",
+  "links_limit",
+  "workspaces_limit",
+] as const;
+export type WarningCode = (typeof WARNING_CODES)[number];
+
+/** Parses `<code>:<count>` warnings and sums them per code (unknown codes are kept raw). */
+export function sumWarnings(lists: readonly (readonly string[])[]): {
+  counts: Partial<Record<WarningCode, number>>;
+  other: string[];
+} {
+  const counts: Partial<Record<WarningCode, number>> = {};
+  const other: string[] = [];
+  for (const w of lists.flat()) {
+    const [code, n] = w.split(":");
+    const count = Number(n);
+    if ((WARNING_CODES as readonly string[]).includes(code ?? "") && Number.isFinite(count)) {
+      const c = code as WarningCode;
+      counts[c] = (counts[c] ?? 0) + count;
+    } else if (!other.includes(w)) other.push(w);
+  }
+  return { counts, other };
+}
+
+export interface ImportPreview {
+  added: number;
+  skipped: number;
+  counts: Partial<Record<WarningCode, number>>;
+}
+
+/**
+ * What the import would do: the worker's planner run per call against the current quick links,
+ * summed. `sent` is the number of selected entries (those not in any call count as skipped).
+ */
+export function previewImport(
+  calls: readonly ImportCall[],
+  sent: number,
+  quickLinkUrls: readonly string[],
+  droppedFolders = 0,
+): ImportPreview {
+  let added = 0;
+  const warnings: string[][] = [];
+  for (const c of calls) {
+    const plan = planBookmarkImport(c.entries, c.target, { quickLinkUrls });
+    added += plan.added;
+    warnings.push(plan.warnings);
+  }
+  if (droppedFolders > 0) warnings.push([`workspaces_limit:${droppedFolders}`]);
+  return { added, skipped: Math.max(0, sent - added), counts: sumWarnings(warnings).counts };
 }

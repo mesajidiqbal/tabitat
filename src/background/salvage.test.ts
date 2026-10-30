@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isWorkspaceMeta, isWorkspaceTabs, parseWorkspaceMeta } from "../core/model/schemas";
 import type { WorkspaceMeta, WorkspaceTabs } from "../core/model/types";
 import { rng } from "../core/testing/fixtures";
-import { nonNegInt, salvageWorkspaceMeta, salvageWorkspaceTabs } from "./salvage";
+import { nonNegInt, salvageSettings, salvageWorkspaceMeta, salvageWorkspaceTabs } from "./salvage";
 
 const NOW = 1_800_000_000_000;
 
@@ -135,5 +135,19 @@ describe("salvage (W): single-field corruptions never lose the record", () => {
       NOW,
     );
     expect(out?.value.activeSavedTabId).toBeUndefined();
+  });
+});
+
+describe("salvageSettings", () => {
+  it("cuts only an oversized whitelist; other invalid fields still quarantine", () => {
+    const whitelist = Array.from({ length: 201 }, (_, i) => `h${i}.example`);
+    const out = salvageSettings({ restoreLimit: 50, suspend: { whitelist } });
+    expect(out?.value).toMatchObject({
+      restoreLimit: 50,
+      suspend: { whitelist: whitelist.slice(0, 200) },
+    });
+    expect(out?.dropped).toEqual([whitelist[200]]);
+    expect(salvageSettings({ theme: "neon", suspend: { whitelist } })).toBeNull();
+    expect(salvageSettings({ theme: "neon" })).toBeNull();
   });
 });

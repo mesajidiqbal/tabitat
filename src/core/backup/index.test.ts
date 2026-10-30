@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SchemaError } from "../model/schemas";
 import type { BackupFile, SavedLink } from "../model/types";
-import { DEFAULT_SETTINGS } from "../model/types";
+import { DEFAULT_SETTINGS, Keys } from "../model/types";
 import { NOW, savedTab, seqIds, workspaceMeta, workspaceTabs } from "../testing/fixtures";
 import { buildBackup, checkBackupLimits, IMPORT_LIMITS, planImport, validateBackup } from "./index";
 
@@ -102,6 +102,15 @@ describe("buildBackup", () => {
 });
 
 describe("validateBackup", () => {
+  it("an older export's oversized whitelist is cut instead of rejecting the file", () => {
+    const file = structuredClone(buildBackup(storage(), NOW)) as BackupFile;
+    const whitelist = Array.from({ length: 230 }, (_, i) => `h${i}.example`);
+    file.data.settings.suspend.whitelist = whitelist;
+    expect(validateBackup(file).data.settings.suspend.whitelist).toEqual(whitelist.slice(0, 200));
+    const raw = storage();
+    raw[Keys.settings] = { ...(raw[Keys.settings] as object), suspend: { whitelist } };
+    expect(buildBackup(raw, NOW).data.settings.suspend.whitelist).toHaveLength(200);
+  });
   it("rejects dangerous URLs with a SchemaError path", () => {
     const file = buildBackup(storage(), NOW) as BackupFile;
     const bad = structuredClone(file);

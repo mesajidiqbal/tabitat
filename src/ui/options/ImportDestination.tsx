@@ -59,9 +59,14 @@ export function ImportDestination(p: ImportDestinationProps) {
             maxLength={200}
             value={p.name}
             aria-invalid={p.name.trim() === "" ? "true" : undefined}
+            aria-describedby={p.name.trim() === "" ? `${nameId}-e` : undefined}
             onInput={(e) => p.onName((e.currentTarget as HTMLInputElement).value)}
           />
-          {p.name.trim() === "" && <p class={s.err}>{t("optBmNameRequired")}</p>}
+          {p.name.trim() === "" && (
+            <p class={s.err} id={`${nameId}-e`}>
+              {t("optBmNameRequired")}
+            </p>
+          )}
         </div>
       )}
       {p.dest !== "quicklinks" && <ColorSwatches value={p.color} onChange={p.onColor} />}

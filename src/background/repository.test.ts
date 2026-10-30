@@ -88,6 +88,26 @@ describe("Repository", () => {
     expect(await r.getSessionsIndex()).toEqual([1, 3]);
   });
 
+  it("settings stored before the whitelist limits are cut to them, not quarantined", async () => {
+    const { fake, repo: r } = repo();
+    const whitelist = Array.from({ length: 250 }, (_, i) => `h${i}.example`);
+    fake.local.set(Keys.settings, {
+      ...DEFAULT_SETTINGS,
+      theme: "dark",
+      suspend: { enabled: true, afterMinutes: 30, whitelist },
+      rev: 9,
+    });
+    const s = await r.getSettings();
+    expect(s).toMatchObject({ theme: "dark", rev: 9, suspend: { enabled: true } });
+    expect(s.suspend.whitelist).toEqual(whitelist.slice(0, 200));
+    expect((fake.local.get(Keys.settings) as typeof s).suspend.whitelist).toHaveLength(200);
+    expect(fake.local.get("corrupt:settings")).toMatchObject({
+      key: Keys.settings,
+      raw: whitelist.slice(200),
+      salvaged: true,
+    });
+  });
+
   it("settings fall back to defaults when corrupt; window states and ops list skip bad rows", async () => {
     const { fake, repo: r } = repo();
     fake.local.set(Keys.settings, { theme: "neon" });

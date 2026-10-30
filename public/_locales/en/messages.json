@@ -276,6 +276,9 @@
       }
     }
   },
+  "reopenedHere": {
+    "message": "Window was closed; reopened here"
+  },
   "rowActions": {
     "message": "Actions for $TITLE$",
     "placeholders": {
@@ -313,10 +316,18 @@
       }
     }
   },
-  "allowSuspendDone": {
-    "message": "$HOST$ can be suspended again",
+  "allowSuspendRemoved": {
+    "message": "Removed $ENTRY$ from the never-suspend list",
     "placeholders": {
-      "host": {
+      "entry": {
+        "content": "$1"
+      }
+    }
+  },
+  "neverSuspendFull": {
+    "message": "The never-suspend list is full ($COUNT$ sites). Remove some in Settings.",
+    "placeholders": {
+      "count": {
         "content": "$1"
       }
     }
@@ -924,7 +935,7 @@
     "message": "One host per line. Subdomains are included, so example.com also covers app.example.com."
   },
   "optWhitelistBad": {
-    "message": "Line $P1$ is not saved: “$P2$” is not a valid host.",
+    "message": "Line $P1$: “$P2$” is not a valid host.",
     "placeholders": {
       "p1": {
         "content": "$1"
@@ -1109,7 +1120,7 @@
     "message": "One workspace per selected folder"
   },
   "optBmDestPerFolderHint": {
-    "message": "Subfolders become workspaces; links directly in a selected folder go to a workspace named after it."
+    "message": "With one selected folder, its subfolders become workspaces and its own links go to a workspace named after it. With several, each selected folder becomes one workspace."
   },
   "optBmWsName": {
     "message": "Workspace name"
@@ -1128,14 +1139,6 @@
       },
       "p3": {
         "content": "$3"
-      }
-    }
-  },
-  "optBmOverflow": {
-    "message": "$P1$ more will be skipped: the destination is full.",
-    "placeholders": {
-      "p1": {
-        "content": "$1"
       }
     }
   },
@@ -1241,5 +1244,78 @@
   },
   "optAboutPrivacy": {
     "message": "Tabitat works on this device only. It makes no network requests, has no accounts and collects no data. Settings sync is opt-in and uses your browser's own sync storage."
+  },
+  "optWhitelistBlocked": {
+    "message": "Nothing is saved until every line is a valid host."
+  },
+  "optBmImportedName": {
+    "message": "Imported"
+  },
+  "optBmPlan": {
+    "message": "Will add $P1$, skip $P2$.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "optBmShortened": {
+    "message": "$P1$ paths shortened (folders too deep or names too long).",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmWarn_unsupported": {
+    "message": "$P1$ skipped: unsupported address.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmWarn_duplicates": {
+    "message": "$P1$ skipped: already there or listed twice.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmWarn_entries_limit": {
+    "message": "$P1$ skipped: too many links in one import.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmWarn_quicklinks_limit": {
+    "message": "$P1$ skipped: quick links are full.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmWarn_links_limit": {
+    "message": "$P1$ skipped: a workspace is full.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmWarn_workspaces_limit": {
+    "message": "$P1$ folders skipped: too many workspaces in one import.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
   }
 }

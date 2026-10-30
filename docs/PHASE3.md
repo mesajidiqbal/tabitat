@@ -109,8 +109,9 @@ Worker (`src/background/settings-sync.ts`):
   it) and clears `sync:status` to `{ enabled: false }`.
 - `settings.syncNow` performs one pull-then-push and returns the status.
 - `theme` and `dashboard.wallpaper` with `kind: "image"` are device-specific:
-  exclude `dashboard.wallpaper` when `kind === "image"` from the pushed object
-  (keep the local one on pull).
+  `theme` is never part of the pushed object (the local theme is kept on pull),
+  and `dashboard.wallpaper` is excluded when `kind === "image"` (keep the local
+  one on pull).
 
 UI: options page section (§5) shows status (last push/pull, error text via
 `t()` codes), a "Sync now" button, and the privacy sentence "Only settings are
@@ -125,9 +126,11 @@ Sections (ids are URL hashes, `options.html#suspension` opens that section):
    explains "tabs opened per switch; the rest are listed as skipped"),
    "Open side panel on startup" is *not* in v1 (skip).
 2. **Suspension**: enable toggle (default off, with the one-paragraph caveat
-   from ARCHITECTURE §5.7 about unsaved form input), minutes (5–720, step 5),
-   whitelist editor (one host per line textarea + chips; normalized with
-   `normalizeWhitelistEntry`; invalid lines flagged; max `LIMITS.whitelistHosts`).
+   from ARCHITECTURE §5.7 about unsaved form input), minutes (any whole number
+   5–720; amended in the review pass, no step), whitelist editor (one host per
+   line textarea + chips; normalized with `normalizeWhitelistEntry`; invalid
+   lines flagged and nothing saved while any line is invalid; saved on blur and
+   when leaving the section; max `LIMITS.whitelistHosts`).
 3. **Sessions**: snapshot every N minutes (1–60), keep N generations (3–30),
    "Take a snapshot now" → `session.snapshotNow`, link to the recovery page.
 4. **Pomodoro**: work / break / long break minutes, rounds before long break.
@@ -144,8 +147,10 @@ Sections (ids are URL hashes, `options.html#suspension` opens that section):
    (`meta.flavor`), license MIT, link to repository, privacy summary.
 
 Behavior: every control writes through `settings.update` with `expectedRev`;
-on `conflict` reload from storage and show "Settings changed elsewhere,
-reloaded". Inputs save on change (debounced 300 ms for text/number), with a
+writes are queued in order and each remembers the rev it was made against: a
+patch overtaken by a change from elsewhere is not sent. On a stale patch or a
+`conflict`, drop the queue, reload from storage and show "Settings changed
+elsewhere, reloaded". Inputs save on change (debounced 300 ms for text/number), with a
 transient "Saved" indicator per section. Keyboard: all controls native,
 focus-visible from the theme, section nav is a `nav` with `aria-current`.
 Theme applied via `applyTheme` like the popup.
@@ -161,12 +166,26 @@ UI (options → Bookmarks import):
    subtree); "Bookmarks bar" / "Other bookmarks" expanded by default.
 3. Destination radio: **Quick links** (flat; cap `LIMITS.quickLinks` total,
    shows how many will be skipped), **One workspace** (name prefilled with the
-   top folder's name, color picker), **One workspace per selected folder**
-   (direct children folders become workspaces; links at that level go to a
-   workspace named after the parent).
-4. Preview line: "N links · M folders · K skipped (unsupported URLs)". Only
-   `http(s)`, `file`, `ftp` URLs are sent (`classifyUrl !== "skip"`); the UI
-   filters, the worker re-validates.
+   top folder's name, color picker), **One workspace per selected folder**:
+   - exactly one topmost selected folder (selected, no selected ancestor): one
+     `workspacePerFolder` import with `root` = that folder's path; its direct
+     child folders become workspaces and its own links go to a workspace named
+     after it (an empty selected folder still anchors the mapping);
+   - two or more topmost selected folders (e.g. one under "Bookmarks bar" and
+     one under "Other bookmarks"): one `{ kind: "workspace" }` import per
+     topmost folder, named after it, holding every selected link beneath it
+     (at most `LIMITS.importWorkspaces` folders). Never the common parent as
+     root, which would turn "Bookmarks bar" / "Other bookmarks" into workspaces.
+   Same-named sibling folders under the root merge into one workspace (Chrome
+   allows them; it is rare and merging is the least surprising result).
+4. Preview line: "N links · M folders · K skipped (unsupported URLs)", then
+   "Will add A, skip S." with translated warnings, from the worker's own planner
+   (`planBookmarkImport`, run per import and summed) against the current quick
+   links. Only `http(s)`, `file`, `ftp` URLs are sent (`classifyUrl ===
+   "placeholder"`); the UI filters, the worker re-validates. Entries are fitted
+   to the RPC limits before sending (folder names 200 characters, titles 2000,
+   paths 32 folders deep; "N paths shortened" in the preview), so one odd
+   bookmark cannot reject the whole import.
 5. "Import" → `import.bookmarks`; result line with counts and warnings;
    "Remove bookmarks permission" link (`chrome.permissions.remove`) shown after
    a successful import.

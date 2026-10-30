@@ -62,13 +62,23 @@ test("(f) options edits suspension settings; stored settings reflect them and re
   );
 
   await page.getByRole("checkbox", { name: "Suspend inactive tabs" }).check();
-  await page.getByLabel("Suspend after (minutes)").fill("45");
-  await page
-    .getByLabel("Never suspend these sites")
-    .fill("Example.com\nhttps://docs.example.org/page\nexample.com\nnot a host");
+  await page.getByLabel("Suspend after (minutes)").fill("47");
+  const whitelist = page.getByLabel("Never suspend these sites");
+  await whitelist.fill("Example.com\nhttps://docs.example.org/page\nexample.com\nnot a host");
 
-  // Valid hosts are normalized and de-duplicated; the invalid line is flagged, not saved.
-  await expect(page.getByText("Line 4 is not saved")).toBeVisible();
+  // An invalid line blocks saving the whole list (it may be a protected host being edited).
+  await expect(page.getByText("Line 4: “not a host” is not a valid host.")).toBeVisible();
+  await expect(whitelist).toHaveAttribute("aria-invalid", "true");
+  await expect
+    .poll(async () => (await readSettings())?.suspend, { timeout: 10_000 })
+    .toEqual({ enabled: true, afterMinutes: 47, whitelist: [] });
+  await whitelist.blur();
+  await page.waitForTimeout(500);
+  expect((await readSettings())?.suspend.whitelist).toEqual([]);
+
+  // Valid hosts are normalized and de-duplicated, then saved.
+  await whitelist.fill("Example.com\nhttps://docs.example.org/page\nexample.com");
+  await expect(whitelist).not.toHaveAttribute("aria-invalid", "true");
   await expect(page.getByRole("list", { name: "Sites that are never suspended" })).toContainText(
     "docs.example.org",
   );
@@ -76,7 +86,7 @@ test("(f) options edits suspension settings; stored settings reflect them and re
     .poll(async () => (await readSettings())?.suspend, { timeout: 10_000 })
     .toEqual({
       enabled: true,
-      afterMinutes: 45,
+      afterMinutes: 47,
       whitelist: ["example.com", "docs.example.org"],
     });
   const after = await readSettings();
@@ -86,7 +96,7 @@ test("(f) options edits suspension settings; stored settings reflect them and re
   // Reload: the saved values come back from storage.
   await page.reload();
   await expect(page.getByRole("checkbox", { name: "Suspend inactive tabs" })).toBeChecked();
-  await expect(page.getByLabel("Suspend after (minutes)")).toHaveValue("45");
+  await expect(page.getByLabel("Suspend after (minutes)")).toHaveValue("47");
   await expect(page.getByLabel("Never suspend these sites")).toHaveValue(
     "example.com\ndocs.example.org",
   );
@@ -104,6 +114,7 @@ test("out-of-range minutes are flagged and not saved", async () => {
 test("theme select applies data-theme and saves; hash navigation switches sections", async () => {
   await page.goto(extUrl("options.html"));
   await expect(page.getByRole("heading", { level: 2, name: "General" })).toBeVisible();
+  await expect(page).toHaveTitle("Tabitat settings");
   await page.getByLabel("Theme").selectOption("dark");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect.poll(async () => (await readSettings())?.theme).toBe("dark");
@@ -137,7 +148,7 @@ test("Shortcuts table lists the rows of chrome.commands.getAll()", async () => {
   await expect(page.getByRole("button", { name: "Change in Chrome" })).toBeVisible();
 });
 
-test("Bookmarks picker: folder tree, selection counts and the import call (stubbed bookmarks API)", async () => {
+test("Bookmarks picker: folder tree, selection counts and a quick-links import (stubbed bookmarks API)", async () => {
   await page.goto(extUrl("options.html#bookmarks"));
   // The bookmarks API only exists once the optional permission is granted (a user gesture in
   // real use); stub both so the picker can be driven.
@@ -186,11 +197,88 @@ test("Bookmarks picker: folder tree, selection counts and the import call (stubb
   await page.getByRole("radio", { name: "One workspace", exact: true }).check();
   await expect(page.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Bookmarks bar");
 
-  // The worker command may be unavailable (degraded worker): either outcome is surfaced.
+  // Import into quick links: the worker command succeeds and the links are stored.
+  await page.getByRole("checkbox", { name: "Work (2 links)" }).check();
+  await page.getByRole("radio", { name: "Quick links" }).check();
+  await expect(page.getByText("Will add 3, skip 0.")).toBeVisible();
   await page.getByRole("button", { name: "Import", exact: true }).click();
-  await expect(
-    page.getByText(
-      /^Imported \d+ links, skipped \d+\.$|^Something went wrong\.$|^That is not allowed\.$/,
-    ),
-  ).toBeVisible();
+  await expect(page.getByText("Imported 3 links, skipped 0.")).toBeVisible();
+  const quickUrls = () =>
+    ext.worker.evaluate(async () => {
+      const q = (await chrome.storage.local.get("quicklinks")).quicklinks as
+        | { items?: Array<{ url: string }> }
+        | undefined;
+      return (q?.items ?? []).map((i) => i.url).sort();
+    });
+  await expect
+    .poll(quickUrls)
+    .toEqual(["https://a.example/", "https://b.example/", "https://c.example/"]);
+
+  // The preview runs the worker's planner: importing again would only find duplicates.
+  await expect(page.getByText("Will add 0, skip 3.")).toBeVisible();
+  await expect(page.getByText("3 skipped: already there or listed twice.").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove bookmarks permission" })).toBeVisible();
+});
+
+test("Bookmarks per-folder import: one selected folder roots the mapping; several become one workspace each", async () => {
+  await page.goto(extUrl("options.html#bookmarks"));
+  await page.reload(); // same-document hash navigation would keep the previous picker state
+  await page.evaluate(() => {
+    const node = (id: string, title: string, url?: string, children?: unknown[]) => ({
+      id,
+      title,
+      url,
+      children,
+    });
+    const tree = [
+      node("0", "", undefined, [
+        node("1", "Bookmarks bar", undefined, [
+          node("dev", "Dev", undefined, [
+            node("docs", "Docs", undefined, [
+              node("deep", "Deep", undefined, [node("x", "X", "https://x.example/")]),
+            ]),
+          ]),
+        ]),
+        node("2", "Other bookmarks", undefined, [
+          node("misc", "Misc", undefined, [node("y", "Y", "https://y.example/")]),
+        ]),
+      ]),
+    ];
+    const w = chrome as unknown as Record<string, unknown>;
+    Object.defineProperty(w.permissions as object, "request", {
+      value: async () => true,
+      configurable: true,
+    });
+    Object.defineProperty(w, "bookmarks", {
+      value: { getTree: async () => tree },
+      configurable: true,
+    });
+  });
+  const wsNames = () =>
+    ext.worker.evaluate(async () => {
+      const all = await chrome.storage.local.get(null);
+      return Object.entries(all)
+        .filter(([k]) => k.startsWith("ws:meta:"))
+        .map(([, v]) => (v as { name: string }).name)
+        .sort();
+    });
+  const before = await wsNames();
+  await page.getByRole("button", { name: "Choose bookmarks…" }).click();
+  await page.getByRole("button", { name: "Expand or collapse Bookmarks bar" }).waitFor();
+  await page.getByRole("radio", { name: "One workspace per selected folder" }).check();
+
+  // One topmost folder ("Dev", no direct links): its direct subfolder "Docs" becomes the workspace.
+  await page.getByRole("checkbox", { name: "Dev (1 links)" }).check();
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.getByText("Imported 1 links, skipped 0.")).toBeVisible();
+  await expect.poll(wsNames).toEqual([...before, "Docs"].sort());
+
+  // Two topmost folders under different roots: one workspace per folder.
+  await page.getByRole("checkbox", { name: "Dev (1 links)" }).uncheck();
+  await page.getByRole("button", { name: "Expand or collapse Dev" }).click();
+  await page.getByRole("checkbox", { name: "Docs (1 links)" }).check();
+  await page.getByRole("checkbox", { name: "Misc (1 links)" }).check();
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.getByText("Imported 2 links, skipped 0.")).toBeVisible();
+  await expect.poll(wsNames).toEqual([...before, "Docs", "Docs", "Misc"].sort());
 });

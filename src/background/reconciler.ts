@@ -59,7 +59,7 @@ async function updateRecoveryHint(
   ctx: BgContext,
   gen: SessionGeneration | null,
   windows: readonly LiveWindow[],
-  owned: ReadonlySet<string>,
+  owned: ReadonlyMap<string, number>,
 ): Promise<void> {
   const unmatched = gen
     ? countUnmatchedSessionWindows(gen, windows, owned, { placeholderBase: ctx.placeholderBase })
@@ -191,10 +191,10 @@ export async function reconcileWindows(
   );
   if (stale.length + dirty.length > 0) await repo.remove([...stale, ...dirty]);
   if (deps.browserRestart) {
-    const active = new Set<string>();
+    const active = new Map<string, number>(); // workspace -> the live window it is active in
     for (const w of windows) {
       const st = (writes[Keys.window(w.id)] as WindowState | undefined) ?? valid.get(w.id);
-      if (st?.activeWorkspaceId) active.add(st.activeWorkspaceId);
+      if (st?.activeWorkspaceId) active.set(st.activeWorkspaceId, w.id);
     }
     await updateRecoveryHint(ctx, hintGen, windows, active).catch((e: unknown) =>
       ctx.log.warn("[tabitat] recovery hint update failed", e),

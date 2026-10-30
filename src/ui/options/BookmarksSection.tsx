@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { type Color, Keys } from "@/core/model/types";
 import { t } from "@/i18n";
 import { send } from "@/messaging/client";
-import type { ImportTarget } from "@/messaging/commands";
 import c from "../components/controls.module.css";
 import { useStorageKey } from "../hooks/useStorageKey";
 import { type Line, LineView } from "./actions";
@@ -18,11 +17,13 @@ import {
   collectSelection,
   type DestinationKind,
   defaultExpanded,
-  destinationOverflow,
   type FolderNode,
+  importCalls,
+  previewImport,
   setFolderChecked,
   suggestedWorkspaceName,
 } from "./bookmarks-tree";
+import { warningLines } from "./bookmarks-warnings";
 import { errorLine } from "./errors";
 import { FolderTree } from "./FolderTree";
 import { Group, Section } from "./fields";
@@ -30,13 +31,19 @@ import { ImportDestination } from "./ImportDestination";
 import { ImportFooter } from "./ImportFooter";
 import s from "./options.module.css";
 
-const quickCount = (raw: unknown): number => {
+/** URLs of the stored quick links (read defensively: the page reads storage directly). */
+const quickUrls = (raw: unknown): string[] => {
   const items = (raw as { items?: unknown } | undefined)?.items;
-  return Array.isArray(items) ? items.length : 0;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((x) => {
+    const url = (x as { url?: unknown } | null)?.url;
+    return typeof url === "string" ? [url] : [];
+  });
 };
 
 export function BookmarksSection() {
-  const existing = quickCount(useStorageKey(Keys.quicklinks).value);
+  const quick = useStorageKey(Keys.quicklinks).value;
+  const existing = useMemo(() => quickUrls(quick), [quick]);
   const [tree, setTree] = useState<FolderNode[] | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -44,7 +51,7 @@ export function BookmarksSection() {
   const [typedName, setTypedName] = useState<string | null>(null);
   const [color, setColor] = useState<Color>("blue");
   const [line, setLine] = useState<Line>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
+  const [warnings, setWarnings] = useState<string[][]>([]);
   const [busy, setBusy] = useState(false);
   const [imported, setImported] = useState(false);
 
@@ -84,28 +91,40 @@ export function BookmarksSection() {
   };
 
   const collected = useMemo(() => collectSelection(tree ?? [], selection), [tree, selection]);
-  const name = typedName ?? suggestedWorkspaceName(tree ?? [], selection);
-  const overflow = destinationOverflow(dest, collected.entries.length, existing);
-  const canImport =
-    !busy && collected.entries.length > 0 && (dest !== "workspace" || name.trim() !== "");
+  const fallbackName = t("optBmImportedName");
+  const name = typedName ?? suggestedWorkspaceName(tree ?? [], selection, fallbackName);
+  const plan = useMemo(
+    () => importCalls(tree ?? [], selection, { dest, name, color, fallbackName }),
+    [tree, selection, dest, name, color, fallbackName],
+  );
+  const preview = useMemo(
+    () => previewImport(plan.calls, collected.entries.length, existing, plan.droppedFolders),
+    [plan, collected, existing],
+  );
+  const canImport = !busy && plan.calls.length > 0 && (dest !== "workspace" || name.trim() !== "");
 
   const run = async () => {
-    const target: ImportTarget =
-      dest === "quicklinks"
-        ? { kind: "quicklinks" }
-        : dest === "workspace"
-          ? { kind: "workspace", name: name.trim(), color }
-          : { kind: "workspacePerFolder", color };
     setBusy(true);
     setLine(null);
+    setWarnings([]);
+    let added = 0;
+    let skipped = collected.entries.length;
+    const got: string[][] = [];
+    if (plan.droppedFolders > 0) got.push([`workspaces_limit:${plan.droppedFolders}`]);
     try {
-      const r = await send("import.bookmarks", { entries: collected.entries, target });
-      setLine({ ok: true, text: t("optBmResult", [r.added, r.skipped]) });
-      setWarnings(r.warnings);
+      for (const call of plan.calls) {
+        const r = await send("import.bookmarks", call);
+        added += r.added;
+        got.push(r.warnings);
+      }
+      skipped = Math.max(0, skipped - added);
+      setLine({ ok: true, text: t("optBmResult", [added, skipped]) });
       setImported(true);
     } catch (e) {
       fail(e);
+      if (added > 0) setImported(true);
     }
+    setWarnings(got);
     setBusy(false);
   };
   const drop = async () => {
@@ -158,7 +177,8 @@ export function BookmarksSection() {
             />
             <ImportFooter
               collected={collected}
-              overflow={overflow}
+              preview={preview}
+              shortened={plan.shortened}
               canImport={canImport}
               busy={busy}
               imported={imported}
@@ -170,7 +190,7 @@ export function BookmarksSection() {
         <LineView line={line} />
         {warnings.length > 0 && (
           <ul class={s.hint}>
-            {warnings.map((w) => (
+            {warningLines(warnings).map((w) => (
               <li key={w}>{w}</li>
             ))}
           </ul>

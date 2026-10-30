@@ -5,37 +5,40 @@ Update it at the end of every phase (and at any forced pause).
 
 ## Current checkpoint
 
-- Phase: **2 done**, tagged `phase-2` (2026-10-31, ~04:15 IST).
-- State: popup, side panel, recovery page per `docs/UI-SPEC.md`; shared
-  signals store, incremental search index, keyboard map, i18n (en),
-  theme, icons; 2 additive RPC commands (`recovery.dismiss`,
-  `system.purgeCorrupt`). 522 unit tests, 8 Playwright e2e on installed
-  Chrome (popup painted mark ≈ 33 ms, asserted < 300 ms). Build 264 KB
-  per flavor.
-- Reviews: Gemini (`docs/reviews/phase2-gemini.md`) and Codex
-  (`phase2-codex.md`), triaged in `phase2-triage.md`; two fix passes
-  applied (Gemini-accepted items, then Codex-accepted items). Rejected
-  with evidence: fuzzysort threshold (v4 scores 0–1), Unsorted not in
-  index (it is), side panel following focus (per-window by design),
-  interrupted restore "loads every tab" (already placeholder-first).
-- Deferred from the Phase 2 reviews (tracked here, not lost):
-  - Phase 3: recovery banner "newer generation than tracked state"
-    signal from the worker; drag a tab onto saved links; adopt
-    `happy-dom` for component tests (TabRow menu, `p` key, focus
-    recovery are untested today); `TabRow` is 153 lines (> 120 guideline).
-  - Phase 4: generation export (sessions page button is "Export backup"
-    for now); search per-workspace change tracking; bundle-size CI gate;
-    re-measure paint with decoupled hydration.
-  - Phase 5: grid pattern (`row`/`gridcell`) for workspace/tab/link/closed
-    lists (interactive controls inside `role="option"` today); axe check
-    in e2e.
-- Known gaps carried from Phase 1/2: quick links not in search;
-  dashboard/options pages don't apply theme yet (Phase 4); manual QA
-  Q1–Q10 not yet run; Edge untested; suspected direct-tab duplicates only
-  logged; worker error detail for `limit`/`invalid` is a tooltip only.
-- Next: Phase 3 per `docs/ARCHITECTURE.md` §11 — suspension UI,
-  duplicate detection UX, trash/undo polish, options page, settings sync,
-  bookmarks import; Codex + Gemini review at the end.
+- Phase: **3 done**, tagged `phase-3` (2026-10-31, ~05:05 IST).
+- State: suspension UI (`tabs.suspend`, `z`, whitelist toggles, placeholder
+  page refresh), duplicate UX (chip, filter, close + undo, all windows),
+  trash/undo polish, options page (9 sections, hash nav), opt-in settings
+  sync via `storage.sync` (settings only, theme/image wallpaper local,
+  monotonic `updatedAt` LWW, size/quota guard, `sync:status`), bookmarks
+  import (optional permission, folder picker, planner preview, per-folder
+  rule), `recovery:hint` banner, drag-to-park, quick links in search,
+  idempotent saved links, happy-dom component tests, i18n fallback stripped
+  from production builds. Spec: `docs/PHASE3.md`.
+- Numbers: 684 unit tests (48 files), 16 Playwright e2e on installed
+  Chrome, popup JS 39.3 KB gz (budget 40), build 325 KB per flavor.
+- Reviews: Codex (`docs/reviews/phase3-codex.md`) + Gemini
+  (`phase3-gemini.md`), triaged in `phase3-triage.md` (27 + 10 rows); two
+  fix passes (worker, UI) applied. Rejected with evidence: duplicate-group
+  recompute cost, "missing tests" (not in Gemini's bundle).
+- Deferred from Phase 3 reviews:
+  - Phase 4: lazy-load options sections; per-workspace search change
+    tracking; bundle-size CI gate (popup JS ≤ 40 KB gz, measured in e2e or a
+    script); generation export; backup reminder; `restoreLimit` field
+    native-step mismatch (step 10) like the fixed minutes field.
+  - Phase 5: About → repository URL (`REPO_URL` constant, no repo yet);
+    grid-pattern lists; axe in e2e; same-named sibling bookmark folders
+    merge (documented behavior, revisit if users complain).
+- Known gaps carried: dashboard/options theme parity is fine now but the
+  dashboard page itself is still a placeholder (Phase 4); manual QA
+  Q1–Q10 not yet run; Edge untested; real bookmarks permission grant flow
+  unverified end-to-end (e2e stubs `chrome.bookmarks`); DnD has no
+  automated test; `NumberField` commits with the rev at commit time
+  (300 ms window) while the whitelist editor uses a draft rev.
+- Next: Phase 4 per `docs/ARCHITECTURE.md` §11 — dashboard + newtab flavor
+  widgets (clock, search, quick links, workspaces, todos, notes, pomodoro,
+  theme/wallpaper, widget toggles), HTML export, backup reminder, perf CI
+  gate; Codex + Gemini review at the end.
 
 ## Review process (every phase)
 
@@ -57,6 +60,6 @@ Update it at the end of every phase (and at any forced pause).
 | 1a | done | — | spike S1–S14 on Chrome + Brave (`docs/SPIKE.md`) |
 | 1 | done | `phase-1` | core + engine; 2 review rounds; 476 tests |
 | 2 | done | `phase-2` | popup/side panel/recovery; 2 reviews, 2 fix passes; 522 tests, 8 e2e |
-| 3 | pending | | |
+| 3 | done | `phase-3` | suspension, duplicates, options, sync, bookmarks; 2 reviews, 2 fix passes; 684 tests, 16 e2e |
 | 4 | pending | | |
 | 5 | pending | | |

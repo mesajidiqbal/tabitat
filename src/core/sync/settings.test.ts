@@ -5,6 +5,7 @@ import {
   applyRemoteSettings,
   classifySyncError,
   isRemoteNewer,
+  nextLocalUpdatedAt,
   syncItemBytes,
   toSyncPayload,
 } from "./settings";
@@ -15,9 +16,11 @@ const settings = (over: Partial<Settings> = {}): Settings => ({
 });
 
 describe("settings sync rules", () => {
-  it("toSyncPayload drops rev and an image wallpaper only", () => {
-    const s = settings({ rev: 7, updatedAt: 5 });
+  it("toSyncPayload drops rev, theme and an image wallpaper only", () => {
+    const s = settings({ rev: 7, updatedAt: 5, theme: "dark" });
     expect(toSyncPayload(s)).not.toHaveProperty("rev");
+    expect(toSyncPayload(s)).not.toHaveProperty("theme");
+    expect(toSyncPayload(s)).toMatchObject({ updatedAt: 5, restoreLimit: s.restoreLimit });
     expect(toSyncPayload(s).dashboard.wallpaper).toEqual(s.dashboard.wallpaper);
     const img = settings({
       dashboard: { widgets: ["clock"], wallpaper: { kind: "image", value: "idb:1" } },
@@ -34,12 +37,24 @@ describe("settings sync rules", () => {
     expect(isRemoteNewer(undefined, 1)).toBe(false);
   });
 
-  it("applyRemoteSettings: remote values, local syncSettings, rev + 1, remote updatedAt", () => {
-    const local = settings({ rev: 4, updatedAt: 10, syncSettings: true });
-    const raw = { ...toSyncPayload(settings({ theme: "dark", restoreLimit: 50 })), updatedAt: 20 };
+  it("nextLocalUpdatedAt: now, or one past the stored stamp when that is not older", () => {
+    expect(nextLocalUpdatedAt(100, undefined)).toBe(100);
+    expect(nextLocalUpdatedAt(100, 50)).toBe(100);
+    expect(nextLocalUpdatedAt(100, 100)).toBe(101);
+    expect(nextLocalUpdatedAt(100, 5000)).toBe(5001);
+  });
+
+  it("applyRemoteSettings: remote values, local syncSettings and theme, rev + 1, remote updatedAt", () => {
+    const local = settings({ rev: 4, updatedAt: 10, syncSettings: true, theme: "light" });
+    // an older build may still push a theme: it is ignored
+    const raw = {
+      ...toSyncPayload(settings({ restoreLimit: 50 })),
+      theme: "dark",
+      updatedAt: 20,
+    };
     const next = applyRemoteSettings(local, parseSettings(raw), raw);
     expect(next).toMatchObject({
-      theme: "dark",
+      theme: "light",
       restoreLimit: 50,
       rev: 5,
       updatedAt: 20,

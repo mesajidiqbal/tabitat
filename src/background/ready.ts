@@ -282,7 +282,9 @@ export async function runInit(d: InitDeps): Promise<InitReport> {
 
   // 8. session generation
   await step("generation", async () => {
-    report.generation = await d.sessionGuard.take();
+    // startup: a browser session restore may still be in progress, so this snapshot never
+    // clears recovery:hint (later ones do once the hint's windows are back).
+    report.generation = await d.sessionGuard.take({ startup: true });
   });
 
   return report;

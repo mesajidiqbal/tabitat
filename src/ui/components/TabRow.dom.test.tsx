@@ -137,4 +137,28 @@ describe("TabRow keys", () => {
     fireEvent.dragStart(row);
     expect(onDragStart).toHaveBeenCalledTimes(1);
   });
+
+  it("the visible overflow button and a right-click open the same menu", () => {
+    renderRow();
+    const more = screen.getByRole("button", { name: "Actions for Example" });
+    expect(more.getAttribute("aria-haspopup")).toBe("menu");
+    fireEvent.click(more);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(4);
+    expect(open).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    fireEvent(screen.getByRole("option"), ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
+
+  it("a disabled row keeps the browser context menu", () => {
+    renderRow(true);
+    const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    fireEvent(screen.getByRole("option"), ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
 });

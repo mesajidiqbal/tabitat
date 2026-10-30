@@ -15,8 +15,11 @@ export default defineConfig({
   srcDir: "src",
   outDir: isNewTab ? ".output-newtab" : ".output",
   modules: [],
-  vite: () => ({
+  vite: ({ command }) => ({
     plugins: [preact()],
+    // The en fallback of `t()` (src/i18n) bundles the whole messages.json into every surface:
+    // keep it for the dev server, compile it out of production builds.
+    define: { __TABITAT_I18N_FALLBACK__: JSON.stringify(command === "serve") },
   }),
   manifest: ({ command }) => ({
     name: isNewTab ? "Tabitat New Tab" : "Tabitat",

@@ -220,6 +220,15 @@ test("(g) Suspend (z) on a background tab discards it and the row shows the glyp
     .toBe(true);
   await expect(row.getByTestId("suspended")).toBeVisible();
   await expect(row.getByTestId("suspended")).toHaveAttribute("title", "Suspended");
+  // Discarding gives the tab a new id (the row remounts): focus comes back to the same row.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const el = document.activeElement;
+        return el?.getAttribute("role") === "option" ? (el.getAttribute("title") ?? "") : "";
+      }),
+    )
+    .toContain("/sleepy");
   const tab = await findTab(w2, url);
   if (tab) await page.evaluate((id) => chrome.tabs.remove(id), tab.id);
 });

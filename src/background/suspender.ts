@@ -11,6 +11,9 @@ import { RpcError } from "../messaging/errors";
 import type { BgContext } from "./context";
 import { removeTabsSafely } from "./tab-utils";
 
+/** `busy` message of suspendOne when the tab left the window whose lane the caller holds. */
+export const TAB_MOVED_MESSAGE = "tab moved to another window; retry";
+
 export interface SuspenderDeps {
   isLocked(windowId: number): Promise<boolean>;
 }
@@ -69,12 +72,15 @@ export class Suspender {
   /**
    * `tabs.suspend`: discards one tab now, whatever its idle time and the whitelist (the user
    * asked). `not_found` / `busy` (switch op in its window) / `invalid` (active, pinned, audible,
-   * already discarded, a placeholder, or not http(s)). Caller holds lane `window:<windowId>`.
+   * already discarded, a placeholder, or not http(s)). Caller holds lane
+   * `window:<expectedWindowId>`; the tab is re-read here, and when it has moved to another
+   * window since the caller resolved the lane: `busy` with TAB_MOVED_MESSAGE (retry there).
    */
-  async suspendOne(tabId: number): Promise<null> {
+  async suspendOne(tabId: number, expectedWindowId: number): Promise<null> {
     const { ports } = this.ctx;
     const tab = await ports.tabs.get(tabId);
     if (!tab) throw new RpcError("not_found", `tab ${tabId} not found`);
+    if (tab.windowId !== expectedWindowId) throw new RpcError("busy", TAB_MOVED_MESSAGE);
     if (await this.deps.isLocked(tab.windowId)) {
       throw new RpcError("busy", "a switch is running in this window");
     }

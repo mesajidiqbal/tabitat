@@ -78,4 +78,80 @@ describe("tabs.suspend", () => {
     });
     expect(await h.rpc("tabs.suspend", { tabId: b })).toMatchObject({ code: "not_found" });
   });
+
+  it("a tab moved between the lookups is discarded under the new window's lane (one retry)", async () => {
+    const h = await setup({
+      windows: [
+        [{ url: "https://a.example/", active: true }, "https://b.example/"],
+        [{ url: "https://c.example/", active: true }],
+      ],
+    });
+    const [w1, w2] = h.fake.windowIds() as [number, number];
+    const b = h.fake.tabsOf(w1)[1]?.id as number;
+    const { ctx } = h.svc;
+    // the tab moves right after the handler's first (lane-less) lookup
+    const get = ctx.ports.tabs.get.bind(ctx.ports.tabs);
+    let gets = 0;
+    ctx.ports.tabs.get = async (id: number) => {
+      const out = await get(id);
+      if (id === b && ++gets === 1) h.fake.moveTab(b, w2);
+      return out;
+    };
+    // record which window lanes each suspendOne ran under, and the lane held at the discard
+    const run = ctx.lanes.run.bind(ctx.lanes);
+    const suspendLanes: string[] = [];
+    let held = "";
+    const suspendOne = h.svc.suspender.suspendOne.bind(h.svc.suspender);
+    ctx.lanes.run = <T>(l: readonly string[], fn: () => Promise<T>) =>
+      run(l, async () => {
+        const mine = l.filter((x) => x.startsWith("window:")).join();
+        const prev = held;
+        if (mine) held = mine;
+        try {
+          return await fn();
+        } finally {
+          held = prev;
+        }
+      });
+    h.svc.suspender.suspendOne = (id: number, w: number) => {
+      suspendLanes.push(held);
+      return suspendOne(id, w);
+    };
+    const discards: string[] = [];
+    const discard = ctx.ports.tabs.discard.bind(ctx.ports.tabs);
+    ctx.ports.tabs.discard = (id: number) => {
+      discards.push(held);
+      return discard(id);
+    };
+    expect(await h.ok("tabs.suspend", { tabId: b })).toBeNull();
+    expect(suspendLanes).toEqual([`window:${w1}`, `window:${w2}`]);
+    expect(discards).toEqual([`window:${w2}`]);
+    expect(h.fake.tabsOf(w2).find((t) => t.url === "https://b.example/")?.discarded).toBe(true);
+  });
+
+  it("a tab that keeps moving fails with busy after one retry", async () => {
+    const h = await setup({
+      windows: [
+        [{ url: "https://a.example/", active: true }, "https://b.example/"],
+        [{ url: "https://c.example/", active: true }],
+      ],
+    });
+    const [w1, w2] = h.fake.windowIds() as [number, number];
+    const b = h.fake.tabsOf(w1)[1]?.id as number;
+    const { ctx } = h.svc;
+    const get = ctx.ports.tabs.get.bind(ctx.ports.tabs);
+    let gets = 0;
+    ctx.ports.tabs.get = async (id: number) => {
+      const out = await get(id);
+      // after each lane-less lookup (calls 1 and 3), move it to the other window
+      if (id === b && ++gets % 2 === 1) h.fake.moveTab(b, out?.windowId === w1 ? w2 : w1);
+      return out;
+    };
+    expect(await h.rpc("tabs.suspend", { tabId: b })).toMatchObject({
+      ok: false,
+      code: "busy",
+      retryable: true,
+    });
+    expect(h.fake.calls).not.toContain("tabs.discard");
+  });
 });

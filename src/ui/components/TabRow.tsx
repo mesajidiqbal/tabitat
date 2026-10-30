@@ -1,7 +1,7 @@
 /**
  * One row of a tab-like list (live tabs, saved links, recently closed): favicon, title, optional
  * host/meta/chip, hover actions (RowActions). Keyboard: Enter opens, Delete runs the action
- * marked `del`, an action's `key` runs it, ContextMenu / Shift+F10 opens a menu of all actions.
+ * marked `del`, an action's `key` runs it, ContextMenu / Shift+F10 / right-click opens the menu.
  * Draggable when `onDragStart` is given (tab rows onto Saved links).
  */
 import { useRef } from "preact/hooks";
@@ -10,7 +10,7 @@ import { hostLabel } from "../format";
 import type { RovingItem } from "../hooks/useRoving";
 import { IconPin, IconSleep } from "../icons";
 import { Favicon } from "./Favicon";
-import { type RowAction, RowActions, rowShortcuts } from "./RowActions";
+import { type RowAction, RowActions, rowShortcuts, useRowMenu } from "./RowActions";
 import s from "./rows.module.css";
 
 export type { RowAction } from "./RowActions";
@@ -39,7 +39,7 @@ export function TabRow(p: TabRowProps) {
   const actions = p.actions ?? [];
   const del = actions.find((a) => a.del);
   const row = useRef<HTMLDivElement | null>(null);
-  const menuBtn = useRef<HTMLButtonElement | null>(null);
+  const menu = useRowMenu(actions.length > 0 && !p.disabled);
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target === e.currentTarget && !p.disabled) {
       const k = e.key;
@@ -49,7 +49,7 @@ export function TabRow(p: TabRowProps) {
       else if (del && k === "Delete") del.run();
       else if (keyed) keyed.run();
       else if (actions.length > 0 && (k === "ContextMenu" || (k === "F10" && e.shiftKey)))
-        menuBtn.current?.click();
+        menu.open();
       else return p.item.onKeyDown(e);
       e.preventDefault();
       return;
@@ -83,6 +83,7 @@ export function TabRow(p: TabRowProps) {
       }}
       onFocus={p.item.onFocus}
       onKeyDown={onKeyDown}
+      onContextMenu={menu.onContextMenu}
       onClick={() => !p.disabled && p.onOpen()}
     >
       <Favicon url={p.url} />
@@ -109,7 +110,7 @@ export function TabRow(p: TabRowProps) {
         actions={actions}
         title={p.title || p.url}
         disabled={p.disabled}
-        menuRef={menuBtn}
+        menuRef={menu.menuRef}
         returnFocus={() => row.current?.focus()}
       />
     </div>

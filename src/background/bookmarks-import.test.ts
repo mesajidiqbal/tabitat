@@ -93,6 +93,19 @@ describe("import.bookmarks", () => {
     expect(stored<string[]>(h.fake, Keys.wsIndex)).toEqual(report.workspaces);
   });
 
+  it("one workspace per folder relative to the selected root (RPC root)", async () => {
+    const h = await setup();
+    const report = await h.ok("import.bookmarks", {
+      entries: [bm(["Bookmarks bar", "Dev", "Docs", "Deep"], "https://deep.example/")],
+      target: { kind: "workspacePerFolder", color: "blue", root: ["Bookmarks bar", "Dev"] },
+    });
+    expect(report).toMatchObject({ added: 1, skipped: 0 });
+    const names = report.workspaces.map(
+      (id) => stored<WorkspaceMeta>(h.fake, Keys.wsMeta(id))?.name,
+    );
+    expect(names).toEqual(["Docs"]);
+  });
+
   it("is atomic: a failed write leaves nothing behind", async () => {
     const h = await setup({ before: (f) => seedWorkspace(f, "A", []) });
     const index = stored<string[]>(h.fake, Keys.wsIndex);

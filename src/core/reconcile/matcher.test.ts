@@ -191,4 +191,34 @@ describe("countUnmatchedSessionWindows", () => {
     expect(countUnmatchedSessionWindows(g, live, new Set(["A"]), opts)).toBe(1);
     expect(countUnmatchedSessionWindows(g, [], new Set(), opts)).toBe(3);
   });
+
+  it("is one-to-one: one survivor satisfies only one of two identical generation windows", () => {
+    const urls = ["https://x1.com", "https://x2.com"];
+    const g = gen(sw(1, null, urls), sw(2, null, urls));
+    const one = [liveWindow([{ url: "https://x1.com/" }, { url: "https://x2.com/" }], [], 9)];
+    expect(countUnmatchedSessionWindows(g, one, new Set(), opts)).toBe(1);
+    const two = [...one, { ...(one[0] as (typeof one)[number]), id: 10 }];
+    expect(countUnmatchedSessionWindows(g, two, new Set(), opts)).toBe(0);
+  });
+
+  it("assigns by best similarity first, and an owned workspace counts once", () => {
+    // live 9 is exact for gen window 2 and only 2/3 similar to gen window 1
+    const g = gen(
+      sw(1, null, ["https://p1.com", "https://p2.com", "https://p3.com"]),
+      sw(2, null, ["https://p1.com", "https://p2.com"]),
+    );
+    const live = [liveWindow([{ url: "https://p1.com/" }, { url: "https://p2.com/" }], [], 9)];
+    expect(countUnmatchedSessionWindows(g, live, new Set(), opts)).toBe(1);
+    // two generation windows of workspace A, one owner
+    const owned = gen(sw(1, "A", ["https://a.com"]), sw(2, "A", ["https://b.com"]));
+    expect(countUnmatchedSessionWindows(owned, [], new Set(["A"]), opts)).toBe(1);
+  });
+
+  it("with an owner map, the owning live window is consumed by the ownership match", () => {
+    const urls = ["https://x1.com", "https://x2.com"];
+    const g = gen(sw(1, "A", urls), sw(2, null, urls));
+    const live = [liveWindow([{ url: "https://x1.com/" }, { url: "https://x2.com/" }], [], 9)];
+    expect(countUnmatchedSessionWindows(g, live, new Set(["A"]), opts)).toBe(0);
+    expect(countUnmatchedSessionWindows(g, live, new Map([["A", 9]]), opts)).toBe(1);
+  });
 });

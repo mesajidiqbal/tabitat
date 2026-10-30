@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LIMITS } from "@/core/model/types";
 import { parsePlaceholderUrl } from "@/core/ops/url";
 import type { UiTab } from "./tabs";
 
@@ -72,6 +73,7 @@ describe("toggleWhitelist", () => {
     expect(toggleWhitelist(["Example.org", "example.org", ""], "news.site.example")).toEqual({
       whitelist: ["example.org", "news.site.example"],
       added: true,
+      removed: [],
     });
   });
 
@@ -80,7 +82,31 @@ describe("toggleWhitelist", () => {
     expect(toggleWhitelist(["*.site.example", "other.example"], "news.site.example")).toEqual({
       whitelist: ["other.example"],
       added: false,
+      removed: ["*.site.example"],
     });
+  });
+});
+
+describe("reopenTargets", () => {
+  it("hints each tab with its own window's active workspace, none when unknown", async () => {
+    const { reopenTargets } = await load();
+    const tabs = [
+      live(1, "https://a.example/", { windowId: 1 }),
+      live(2, "https://b.example/", { windowId: 2 }),
+      live(3, "https://c.example/", { windowId: 3 }),
+      live(4, "chrome://settings/", { windowId: 1 }),
+      live(5, "edge://weird/", { windowId: 1 }),
+    ];
+    const out = reopenTargets(
+      tabs,
+      { "1": { activeWorkspaceId: "wsA" }, "2": { activeWorkspaceId: null } },
+      BASE,
+    );
+    expect(out.map((x) => x.windowId)).toEqual([1, 2, 3, 1]);
+    const ph = out.map((x) => parsePlaceholderUrl(x.url, BASE));
+    expect(ph.map((x) => x?.w ?? null)).toEqual(["wsA", "", "", null]);
+    expect(ph[0]?.u).toBe("https://a.example/");
+    expect(out[3]?.url).toBe("chrome://settings/");
   });
 });
 
@@ -130,6 +156,65 @@ describe("tab actions with undo", () => {
     };
     await suspendOthers();
     expect(toasts[1]).toEqual({ message: "Suspended 3 tabs" });
+  });
+
+  it("Undo uses the source window's workspace; a closed window reopens here without a hint", async () => {
+    const { store, closeTab } = await load();
+    store.windowId.value = 1;
+    store.windowStates.value = {
+      "7": { activeWorkspaceId: "wsB", sessionEpoch: "e" },
+    } as typeof store.windowStates.value;
+    await closeTab(live(5, "https://a.example/x", { windowId: 7 }));
+    await closeTab(live(6, "https://b.example/y", { windowId: 8 }));
+    vi.mocked(chrome.tabs.create).mockImplementation(async (o) => {
+      if (o.windowId === 8) throw new Error("No window with id: 8.");
+      created.push(o);
+      return { id: 99 } as chrome.tabs.Tab;
+    });
+    toasts[0]?.action?.run();
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+    expect(parsePlaceholderUrl(created[0]?.url ?? "", BASE)?.w).toBe("wsB");
+    toasts[1]?.action?.run();
+    await vi.waitFor(() => expect(created).toHaveLength(2));
+    expect(created[1]?.windowId).toBeUndefined();
+    expect(parsePlaceholderUrl(created[1]?.url ?? "", BASE)?.w).toBe("");
+    await vi.waitFor(() => expect(toasts.at(-1)?.message).toBe("Window was closed; reopened here"));
+  });
+
+  it("the whitelist toggle refuses to add past the limit", async () => {
+    const { store, toggleSiteWhitelist } = await load();
+    const full = Array.from({ length: LIMITS.whitelistHosts }, (_, i) => `h${i}.example`);
+    store.settings.value = {
+      ...store.settings.value,
+      suspend: { ...store.settings.value.suspend, whitelist: full },
+    };
+    await toggleSiteWhitelist("new.example");
+    expect(rpc).toEqual([]);
+    expect(toasts[0]?.message).toBe(
+      `The never-suspend list is full (${LIMITS.whitelistHosts} sites). Remove some in Settings.`,
+    );
+  });
+
+  it("allowing a site names the whitelist entry removed", async () => {
+    const { store, toggleSiteWhitelist } = await load();
+    store.settings.value = {
+      ...store.settings.value,
+      suspend: { ...store.settings.value.suspend, whitelist: ["example.com"] },
+    };
+    reply = store.settings.value;
+    await toggleSiteWhitelist("docs.example.com");
+    expect(toasts[0]?.message).toBe("Removed example.com from the never-suspend list");
+  });
+
+  it("parking a tab that is already a saved link only says so", async () => {
+    const { store, parkTab } = await load();
+    store.liveTabs.value = [live(3, "https://saved.example/page")];
+    store.metas.value = {
+      ws1: { resources: [{ url: "https://saved.example/page#x" }] },
+    } as unknown as typeof store.metas.value;
+    await parkTab(3, "ws1");
+    expect(rpc).toEqual([]);
+    expect(toasts[0]?.message).toBe("Already saved");
   });
 
   it("the whitelist toggle sends settings.update with the current rev", async () => {

@@ -150,19 +150,24 @@ function liveUrlSet(window: LiveWindow, base: string): Set<string> {
 
 /**
  * How many windows of a session generation (the "recovery hint", PHASE3 §1) no live window
- * accounts for after startup reconciliation. A generation window counts when it has at least one
- * non-blank tab and neither (a) its workspace is now active in a live window (`ownedWorkspaces`)
- * nor (b) some live window's URL set is at least SIMILARITY_THRESHOLD similar to its own.
+ * accounts for. A generation window counts when it has at least one non-blank tab and it is
+ * neither (a) its workspace is now active in a live window (`ownedWorkspaces`) nor (b) assigned
+ * a live window whose URL set is at least SIMILARITY_THRESHOLD similar to its own.
+ * Matching is one-to-one: each owned workspace satisfies at most one generation window (in
+ * generation order), and each live window at most one, assigned greedily by best Jaccard (ties:
+ * earlier generation window, then earlier live window). When `ownedWorkspaces` maps each
+ * workspace to its live window id, that window is consumed by the ownership match too.
  * Storage-only windows (windowId 0, written by reconciliation itself) are ignored.
  */
 export function countUnmatchedSessionWindows(
   gen: SessionGeneration,
   live: readonly LiveWindow[],
-  ownedWorkspaces: ReadonlySet<WorkspaceId>,
+  ownedWorkspaces: ReadonlySet<WorkspaceId> | ReadonlyMap<WorkspaceId, number>,
   opts: { placeholderBase: string },
 ): number {
-  const liveSets = live.map((w) => liveUrlSet(w, opts.placeholderBase));
-  let unmatched = 0;
+  const ownersLeft = new Set<WorkspaceId>(ownedWorkspaces.keys());
+  const usedLive = new Set<number>(); // indexes into `live`
+  const pending: Array<Set<string>> = [];
   for (const w of gen.windows) {
     if (w.windowId === 0) continue;
     const urls = new Set(
@@ -172,9 +177,31 @@ export function countUnmatchedSessionWindows(
         .map(normalizeForMatch),
     );
     if (urls.size === 0) continue;
-    if (w.workspaceId !== null && ownedWorkspaces.has(w.workspaceId)) continue;
-    if (liveSets.some((set) => jaccard(urls, set) >= SIMILARITY_THRESHOLD)) continue;
-    unmatched++;
+    if (w.workspaceId !== null && ownersLeft.has(w.workspaceId)) {
+      ownersLeft.delete(w.workspaceId);
+      if (ownedWorkspaces instanceof Map) {
+        const owner = live.findIndex((lw) => lw.id === ownedWorkspaces.get(w.workspaceId));
+        if (owner >= 0) usedLive.add(owner);
+      }
+      continue;
+    }
+    pending.push(urls);
   }
-  return unmatched;
+  const liveSets = live.map((w) => liveUrlSet(w, opts.placeholderBase));
+  const pairs: Array<{ g: number; l: number; score: number }> = [];
+  for (const [g, urls] of pending.entries()) {
+    for (const [l, set] of liveSets.entries()) {
+      if (usedLive.has(l)) continue;
+      const score = jaccard(urls, set);
+      if (score >= SIMILARITY_THRESHOLD) pairs.push({ g, l, score });
+    }
+  }
+  pairs.sort((a, b) => b.score - a.score || a.g - b.g || a.l - b.l);
+  const matchedGen = new Set<number>();
+  for (const p of pairs) {
+    if (matchedGen.has(p.g) || usedLive.has(p.l)) continue;
+    matchedGen.add(p.g);
+    usedLive.add(p.l);
+  }
+  return pending.length - matchedGen.size;
 }

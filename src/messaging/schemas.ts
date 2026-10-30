@@ -101,7 +101,11 @@ export const PayloadSchemas = {
     target: v.variant("kind", [
       v.object({ kind: v.literal("quicklinks") }),
       v.object({ kind: v.literal("workspace"), name: Name, color: ColorSchema }),
-      v.object({ kind: v.literal("workspacePerFolder"), color: ColorSchema }),
+      v.object({
+        kind: v.literal("workspacePerFolder"),
+        color: ColorSchema,
+        root: v.optional(v.pipe(v.array(v.pipe(v.string(), v.maxLength(200))), v.maxLength(32))),
+      }),
     ]),
   }),
   "trash.restore": v.object({ trashId: Id }),

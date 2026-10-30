@@ -28,7 +28,7 @@ import type {
   WorkspacePrev,
   WorkspaceTabs,
 } from "./types";
-import { DEFAULT_SETTINGS } from "./types";
+import { DEFAULT_SETTINGS, LIMITS } from "./types";
 
 /** Thrown by every parseX helper; `path` is the dot path of the first failing field ("" = root). */
 export class SchemaError extends Error {
@@ -304,6 +304,8 @@ export const TrashSchema = v.object({ items: v.array(TrashItemSchema) });
 // ---------------------------------------------------------------- settings
 
 const D = DEFAULT_SETTINGS;
+/** Longest whitelist entry (a DNS name is at most 253 characters). */
+export const WHITELIST_ENTRY_MAX = 253;
 const clone =
   <T>(x: T): (() => T) =>
   () =>
@@ -329,7 +331,16 @@ export const SettingsSchema = v.object({
     v.object({
       enabled: v.optional(v.boolean(), D.suspend.enabled),
       afterMinutes: v.optional(PosInt, D.suspend.afterMinutes),
-      whitelist: v.optional(v.array(v.string()), clone(D.suspend.whitelist)),
+      whitelist: v.optional(
+        v.pipe(
+          v.array(v.pipe(v.string(), v.maxLength(WHITELIST_ENTRY_MAX, "whitelist entry too long"))),
+          v.maxLength(
+            LIMITS.whitelistHosts,
+            `whitelist has more than ${LIMITS.whitelistHosts} hosts`,
+          ),
+        ),
+        clone(D.suspend.whitelist),
+      ),
     }),
     clone(D.suspend),
   ),
@@ -436,6 +447,25 @@ export const parseNote = (input: unknown): Note => parseWith("Note", NoteSchema,
 export const parseQuickLinks = (input: unknown): QuickLinks =>
   parseWith("QuickLinks", QuickLinksSchema, input);
 export const parseTrash = (input: unknown): Trash => parseWith("Trash", TrashSchema, input);
+/**
+ * A raw settings record with `suspend.whitelist` cut to the schema limits (non-strings and
+ * entries over WHITELIST_ENTRY_MAX dropped, then the first LIMITS.whitelistHosts kept), for
+ * records written before the limits existed. Null when the whitelist is absent or already fits.
+ */
+export function fitSettingsWhitelist(raw: unknown): { raw: unknown; dropped: unknown[] } | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const suspend = (raw as { suspend?: unknown }).suspend;
+  if (typeof suspend !== "object" || suspend === null || Array.isArray(suspend)) return null;
+  const list = (suspend as { whitelist?: unknown }).whitelist;
+  if (!Array.isArray(list)) return null;
+  const ok = (x: unknown): x is string => typeof x === "string" && x.length <= WHITELIST_ENTRY_MAX;
+  const fits = list.filter(ok);
+  const kept = fits.slice(0, LIMITS.whitelistHosts);
+  if (kept.length === list.length) return null;
+  const dropped = [...list.filter((x) => !ok(x)), ...fits.slice(LIMITS.whitelistHosts)];
+  return { raw: { ...raw, suspend: { ...suspend, whitelist: kept } }, dropped };
+}
+
 /** `undefined` (no stored settings yet) parses to a fresh copy of DEFAULT_SETTINGS. */
 export const parseSettings = (input: unknown): Settings =>
   parseWith("Settings", SettingsSchema, input === undefined ? {} : input);

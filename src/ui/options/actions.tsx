@@ -1,10 +1,13 @@
 /** Action controls for the options sections: inline confirm and result lines. */
-import { useState } from "preact/hooks";
+import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { t } from "@/i18n";
 import c from "../components/controls.module.css";
 import s from "./options.module.css";
 
-/** Inline two-step confirmation for a destructive action (no `confirm()` dialog). */
+/**
+ * Inline two-step confirmation for a destructive action (no `confirm()` dialog). Opening it moves
+ * focus to the confirm button; Escape cancels; focus returns to the trigger afterwards.
+ */
 export function ConfirmAction(p: {
   label: string;
   prompt: string;
@@ -12,9 +15,25 @@ export function ConfirmAction(p: {
   onConfirm: () => void;
 }) {
   const [asking, setAsking] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const confirm = useRef<HTMLButtonElement>(null);
+  const restore = useRef(false);
+  const promptId = useId();
+  useEffect(() => {
+    if (asking) confirm.current?.focus();
+    else if (restore.current) {
+      restore.current = false;
+      trigger.current?.focus();
+    }
+  }, [asking]);
+  const close = () => {
+    restore.current = true;
+    setAsking(false);
+  };
   if (!asking) {
     return (
       <button
+        ref={trigger}
         type="button"
         class={`${c.btn} ${c.dangerBtn}`}
         disabled={p.disabled}
@@ -25,19 +44,31 @@ export function ConfirmAction(p: {
     );
   }
   return (
-    <div class={s.confirm} role="alertdialog" aria-label={p.label}>
-      <span>{p.prompt}</span>
+    <div
+      class={s.confirm}
+      role="alertdialog"
+      aria-label={p.label}
+      aria-describedby={promptId}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      }}
+    >
+      <span id={promptId}>{p.prompt}</span>
       <button
+        ref={confirm}
         type="button"
         class={`${c.btn} ${c.dangerBtn}`}
         onClick={() => {
-          setAsking(false);
+          close();
           p.onConfirm();
         }}
       >
         {t("optConfirm")}
       </button>
-      <button type="button" class={c.btn} onClick={() => setAsking(false)}>
+      <button type="button" class={c.btn} onClick={close}>
         {t("cancel")}
       </button>
     </div>

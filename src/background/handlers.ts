@@ -13,7 +13,14 @@ import type {
   WorkspaceMeta,
 } from "../core/model/types";
 import { Keys, LIMITS } from "../core/model/types";
-import { captureUrl, classifyUrl, isBlankPageUrl, unwrapUrl } from "../core/ops/url";
+import {
+  captureUrl,
+  classifyUrl,
+  isBlankPageUrl,
+  normalizeForMatch,
+  unwrapUrl,
+} from "../core/ops/url";
+import { nextLocalUpdatedAt } from "../core/sync/settings";
 import { RpcError } from "../messaging/errors";
 import { PayloadSchemas } from "../messaging/schemas";
 import { importBookmarks } from "./bookmarks-import";
@@ -22,6 +29,7 @@ import { BG_PREFIX, BgKeys } from "./keys";
 import { Lane } from "./lanes";
 import { repairAlarms } from "./ready";
 import type { Services } from "./services";
+import { TAB_MOVED_MESSAGE } from "./suspender";
 import { removeTabsSafely } from "./tab-utils";
 import { switchLanes } from "./workspace-engine";
 
@@ -143,8 +151,16 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
   );
 
   // ---------------------------------------------------------------- links
+  /**
+   * Appends a saved link; idempotent per URL: when the workspace already has a link whose
+   * (unwrapped, normalized) URL matches, that link is returned unchanged (no write, no rev bump).
+   */
   const addLink = async (workspaceId: string, url: string, title: string): Promise<SavedLink> => {
     const meta = await metaOrThrow(workspaceId);
+    const key = (u: string) => normalizeForMatch(unwrapUrl(u, ctx.placeholderBase));
+    const want = key(url);
+    const existing = meta.resources.find((r) => key(r.url) === want);
+    if (existing) return existing;
     const link: SavedLink = {
       id: ports.newId(),
       url,
@@ -210,7 +226,8 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
       if (isBlankPageUrl(url) || classifyUrl(url, ctx.classifyOptions()) === "skip") {
         throw new RpcError("invalid", "this tab's address cannot be saved");
       }
-      // Save first, then close (never lose the tab).
+      // Save first, then close (never lose the tab). Already saved: the existing link is
+      // returned and the tab is still closed.
       const link = await addLink(p.workspaceId, url, tab.title);
       await removeTabsSafely(ports.tabs, [p.tabId]);
       return link;
@@ -231,10 +248,23 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
     S["tabs.suspend"],
     async (p) => {
       // The lane depends on the tab's window, which only a lookup can tell: resolve it here
-      // (holding no lane), then run in window:<id>; suspendOne re-reads the tab inside.
-      const tab = await ports.tabs.get(p.tabId);
-      if (!tab) throw new RpcError("not_found", `tab ${p.tabId} not found`);
-      return ctx.lanes.run([Lane.window(tab.windowId)], () => s.suspender.suspendOne(p.tabId));
+      // (holding no lane), then run in window:<id>; suspendOne re-reads the tab inside and
+      // refuses (busy, TAB_MOVED_MESSAGE) when it moved meanwhile: retry once under the new
+      // window's lane, then let the error propagate (busy is retryable for the UI).
+      const attempt = async (retries: number): Promise<null> => {
+        const tab = await ports.tabs.get(p.tabId);
+        if (!tab) throw new RpcError("not_found", `tab ${p.tabId} not found`);
+        try {
+          return await ctx.lanes.run([Lane.window(tab.windowId)], () =>
+            s.suspender.suspendOne(p.tabId, tab.windowId),
+          );
+        } catch (e) {
+          const moved = e instanceof RpcError && e.message === TAB_MOVED_MESSAGE;
+          if (moved && retries > 0) return attempt(retries - 1);
+          throw e;
+        }
+      };
+      return attempt(1);
     },
     () => [],
   );
@@ -340,7 +370,7 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
         merged[k] = isPlainObject(prev) && isPlainObject(val) ? { ...prev, ...val } : val;
       }
       merged.rev = cur.rev + 1;
-      merged.updatedAt = ports.now();
+      merged.updatedAt = nextLocalUpdatedAt(ports.now(), cur.updatedAt);
       const next: Settings = parseSettings(merged);
       await repo.setMany({ [Keys.settings]: next });
       const recreate =

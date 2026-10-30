@@ -295,6 +295,31 @@ describe("Settings defaults", () => {
       /dashboard\.widgets\.0/,
     );
   });
+  it("caps the whitelist at LIMITS.whitelistHosts entries of at most 253 characters", () => {
+    const hosts = (n: number) => Array.from({ length: n }, (_, i) => `h${i}.example`);
+    expect(S.parseSettings({ suspend: { whitelist: hosts(200) } }).suspend.whitelist).toHaveLength(
+      200,
+    );
+    expect(() => S.parseSettings({ suspend: { whitelist: hosts(201) } })).toThrow(/whitelist/);
+    expect(() => S.parseSettings({ suspend: { whitelist: ["a".repeat(254)] } })).toThrow(
+      /whitelist/,
+    );
+  });
+  it("fitSettingsWhitelist cuts an old oversized whitelist (null when it fits)", () => {
+    const list = [...Array.from({ length: 205 }, (_, i) => `h${i}.example`), "x".repeat(300), 7];
+    const fit = S.fitSettingsWhitelist({
+      theme: "dark",
+      suspend: { enabled: true, whitelist: list },
+    });
+    expect(fit?.raw).toEqual({
+      theme: "dark",
+      suspend: { enabled: true, whitelist: list.slice(0, 200) },
+    });
+    expect(fit?.dropped).toEqual(["x".repeat(300), 7, ...list.slice(200, 205)]);
+    expect(S.fitSettingsWhitelist({ suspend: { whitelist: ["a.com"] } })).toBeNull();
+    expect(S.fitSettingsWhitelist({ suspend: {} })).toBeNull();
+    expect(S.fitSettingsWhitelist(null)).toBeNull();
+  });
   it("isSettings requires a complete object", () => {
     expect(S.isSettings({})).toBe(false);
     expect(S.isSettings({ ...DEFAULT_SETTINGS, suspend: { enabled: true } })).toBe(false);

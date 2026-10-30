@@ -60,13 +60,54 @@ describe("recovery:hint", () => {
   });
 
   it("is removed when its generation leaves the ring", async () => {
-    const h = await setup({ windows: [["https://a.example/"]] });
+    const h = await setup({ windows: TWO_WINDOWS });
     const gen = latestGen(h);
-    h.fake.local.set(BgKeys.recoveryHint, { generation: gen, unmatchedWindows: 1, at: 1 });
-    for (let i = 0; i < 9; i++) await h.svc.sessionGuard.take({ force: true });
-    expect(hint(h)).toBeDefined(); // still in the ring of 10
+    await partialRestart(h, (u) => !/[cd]\.example/.test(u));
+    expect(hint(h)?.generation).toBe(gen);
+    const index = () => stored<number[]>(h.fake, Keys.sessionsIndex) ?? [];
+    // c/d stay missing: later generations keep the hint until its generation is evicted
+    while (index().length < 10) await h.svc.sessionGuard.take({ force: true }); // ring is full
+    expect(index()[0]).toBe(gen);
+    expect(hint(h)).toBeDefined();
     await h.svc.sessionGuard.take({ force: true });
-    expect(stored<number[]>(h.fake, Keys.sessionsIndex)).not.toContain(gen);
+    expect(index()).not.toContain(gen);
+    expect(hint(h)).toBeUndefined();
+  });
+
+  it("a later generation clears it once its windows are back (delayed session restore)", async () => {
+    const h = await setup({ windows: TWO_WINDOWS });
+    await partialRestart(h, (u) => !/[cd]\.example/.test(u));
+    expect(hint(h)).toBeDefined();
+    await h.svc.sessionGuard.take({ force: true }); // still missing: kept
+    expect(hint(h)).toBeDefined();
+    h.fake.addWindow(["https://c.example/", "https://d.example/"], { emit: false });
+    expect(await h.svc.sessionGuard.take()).not.toBeNull();
+    expect(hint(h)).toBeUndefined();
+  });
+
+  it("one survivor does not satisfy two lost windows with the same URLs", async () => {
+    const same = ["https://a.example/", "https://b.example/"];
+    const h = await setup({ windows: [same, same, ["https://z.example/"]] });
+    const gen = latestGen(h);
+    const seen = new Set<string>();
+    // z comes back, and a/b come back in one window only (each URL kept the first time)
+    await partialRestart(h, (u) => {
+      if (seen.has(u)) return false;
+      seen.add(u);
+      return true;
+    });
+    expect(hint(h)).toMatchObject({ generation: gen, unmatchedWindows: 1 });
+  });
+
+  it("the startup snapshot never clears it; the next one does", async () => {
+    const h = await setup({ windows: TWO_WINDOWS });
+    await partialRestart(h, (u) => !/[cd]\.example/.test(u));
+    const before = latestGen(h);
+    h.fake.addWindow(["https://c.example/", "https://d.example/"], { emit: false });
+    await h.restart(); // worker restart: init's snapshot sees every window back
+    expect(latestGen(h)).toBeGreaterThan(before); // a startup generation was written
+    expect(hint(h)).toBeDefined();
+    await h.svc.sessionGuard.take({ force: true });
     expect(hint(h)).toBeUndefined();
   });
 });

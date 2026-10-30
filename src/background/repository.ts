@@ -49,6 +49,7 @@ import {
   type Salvaged,
   salvageQuickLinks,
   salvageRecentlyClosed,
+  salvageSettings,
   salvageTodoList,
   salvageTrash,
   salvageWorkspaceIndex,
@@ -174,7 +175,9 @@ export class Repository {
   }
 
   async getSettings(): Promise<Settings> {
-    return (await this.read(Keys.settings, parseSettings)) ?? parseSettings(undefined);
+    return (
+      (await this.read(Keys.settings, parseSettings, salvageSettings)) ?? parseSettings(undefined)
+    );
   }
 
   async getWorkspaceIndex(): Promise<string[]> {

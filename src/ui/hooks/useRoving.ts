@@ -1,7 +1,8 @@
 /**
  * Roving tabindex for listbox options and group headers (UI-SPEC Accessibility): one node is
  * tabbable, arrows move focus, Home/End jump. Keys pressed on inner controls are ignored. When
- * the focused node disappears (e.g. its tab closed), focus moves to the node now at its place.
+ * the focused node disappears (e.g. its tab closed or was replaced), focus moves to the node now
+ * at its place.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -50,7 +51,6 @@ export function useRoving(count: number, opts: RovingOptions = {}) {
   const els = useRef<Array<HTMLElement | null>>([]);
   /** The node that last received focus (to notice it being removed). */
   const focused = useRef<HTMLElement | null>(null);
-  const prevCount = useRef(count);
   const cur = count === 0 ? -1 : Math.min(active, count - 1);
 
   const focusAt = (i: number) => {
@@ -60,18 +60,19 @@ export function useRoving(count: number, opts: RovingOptions = {}) {
     els.current[n]?.focus();
   };
 
-  // The list shrank under the focused node: focus the clamped index once the DOM has settled.
+  // The focused node left the DOM and took focus with it: the list shrank under it (a tab closed)
+  // or it was replaced in place (a discarded tab gets a new id, so its row remounts). Focus the
+  // node now at its index once the DOM has settled. Runs after every render; a pending retry is
+  // rescheduled by the next render until a node takes focus again.
   useEffect(() => {
-    const shrank = count < prevCount.current;
-    prevCount.current = count;
-    if (!shrank || count === 0) return;
+    if (count === 0) return;
     const gone = focused.current !== null && !focused.current.isConnected;
     const ae = document.activeElement;
     const lost = ae === null || ae === document.body || !ae.isConnected;
     if (!gone || !lost) return;
     const id = setTimeout(() => focusAt(cur));
     return () => clearTimeout(id);
-  }, [count]);
+  });
 
   const item = (i: number): RovingItem => ({
     tabIndex: i === cur ? 0 : -1,

@@ -61,4 +61,12 @@ describe("useRoving (DOM)", () => {
     rerender(<List items={["a", "c"]} />);
     await waitFor(() => expect(document.activeElement?.textContent).toBe("c"));
   });
+
+  it("an item replaced in place (new key, same count) gets focus back at its index", async () => {
+    const { rerender } = render(<List items={["a", "b", "c"]} />);
+    screen.getByText("b").focus();
+    rerender(<List items={["a", "b2", "c"]} />);
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("b2"));
+    expect(tabStops().map((x) => x.textContent)).toEqual(["b2"]);
+  });
 });

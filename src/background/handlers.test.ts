@@ -63,6 +63,17 @@ describe("record commands", () => {
     expect(await h.rpc("settings.update", { patch: { bogus: 1 } as never })).toMatchObject({
       code: "invalid",
     });
+    const many = Array.from({ length: 201 }, (_, i) => `h${i}.example`);
+    const over = await h.rpc("settings.update", {
+      patch: { suspend: { whitelist: many } as never },
+    });
+    expect(over).toMatchObject({ ok: false, code: "invalid" });
+    expect(over.ok ? "" : over.message).toMatch(/whitelist/);
+    const long = await h.rpc("settings.update", {
+      patch: { suspend: { whitelist: ["a".repeat(254)] } as never },
+    });
+    expect(long).toMatchObject({ ok: false, code: "invalid" });
+    expect(long.ok ? "" : long.message).toMatch(/whitelist/);
     expect(
       await h.rpc("settings.update", { patch: { theme: "dark" }, expectedRev: 0 }),
     ).toMatchObject({
@@ -126,6 +137,49 @@ describe("record commands", () => {
       code: "not_found",
     });
     expect(await h.rpc("trash.restore", { trashId: "x" })).toMatchObject({ code: "not_found" });
+  });
+
+  it("link.add is idempotent per URL: the existing link comes back, nothing is written", async () => {
+    const h = await setup({ before: (f) => seedWorkspace(f, "A", []) });
+    const first = await h.ok("link.add", {
+      workspaceId: "A",
+      url: "https://l.example/",
+      title: "L",
+    });
+    const meta = stored<WorkspaceMeta>(h.fake, Keys.wsMeta("A"));
+    const sets = h.fake.calls.filter((c) => c === "storage.set").length;
+    const base = "chrome-extension://fakeextensionid/suspended.html";
+    for (const url of [
+      "https://l.example",
+      `${base}#u=${encodeURIComponent("https://l.example/")}&t=L&w=A&s=1`,
+    ]) {
+      expect(await h.ok("link.add", { workspaceId: "A", url, title: "Other" })).toEqual(first);
+    }
+    expect(stored<WorkspaceMeta>(h.fake, Keys.wsMeta("A"))).toEqual(meta); // same rev
+    expect(h.fake.calls.filter((c) => c === "storage.set").length).toBe(sets);
+    // another URL is still added
+    await h.ok("link.add", { workspaceId: "A", url: "https://m.example/", title: "M" });
+    expect(stored<WorkspaceMeta>(h.fake, Keys.wsMeta("A"))?.rev).toBe((meta?.rev ?? 0) + 1);
+  });
+
+  it("tabs.park of an already saved URL returns the existing link and still closes the tab", async () => {
+    const h = await setup({
+      windows: [["https://keep.example/", "https://p.example/"]],
+      before: (f) => seedWorkspace(f, "A", []),
+    });
+    const existing = await h.ok("link.add", {
+      workspaceId: "A",
+      url: "https://p.example/",
+      title: "P",
+    });
+    const rev = stored<WorkspaceMeta>(h.fake, Keys.wsMeta("A"))?.rev;
+    const w = h.fake.windowIds()[0] as number;
+    const tab = h.fake.tabsOf(w)[1]?.id as number;
+    expect(await h.ok("tabs.park", { tabId: tab, workspaceId: "A" })).toEqual(existing);
+    expect(h.fake.hasTab(tab)).toBe(false);
+    const meta = stored<WorkspaceMeta>(h.fake, Keys.wsMeta("A"));
+    expect(meta?.resources).toEqual([existing]);
+    expect(meta?.rev).toBe(rev);
   });
 
   it("trash: purge all, 30-day expiry alarm, restoring a workspace whose id is taken", async () => {

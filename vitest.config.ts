@@ -8,6 +8,8 @@ export default defineConfig({
     // listens on it: vitest never starts the WXT dev server.
     WxtVitest({ dev: { server: { port: 3999, strictPort: true } } }),
   ],
+  // Unit tests run without chrome.i18n: `t()` falls back to the en messages (src/i18n).
+  define: { __TABITAT_I18N_FALLBACK__: "true" },
   test: {
     // Component tests are named *.dom.test.tsx and opt into happy-dom per file
     // (`// @vitest-environment happy-dom`); everything else runs in node.

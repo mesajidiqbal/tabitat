@@ -1,7 +1,7 @@
 /**
  * Settings sync rules (docs/PHASE3.md §4). Pure: the worker's settings-sync service does the I/O.
- * Last-write-wins on `Settings.updatedAt`; `rev` is local-only; an image wallpaper is
- * device-specific and never leaves the device.
+ * Last-write-wins on `Settings.updatedAt`; `rev` is local-only; `theme` and an image wallpaper
+ * are device-specific and never leave the device.
  */
 import type { Settings } from "../model/types";
 
@@ -11,21 +11,50 @@ export const SYNC_SETTINGS_KEY = "settings";
 /** Short codes stored in `sync:status.error` (the UI translates them). */
 export type SyncErrorCode = "too_large" | "quota" | "unavailable" | "invalid_remote";
 
-type SyncPayload = Omit<Settings, "rev" | "dashboard"> & {
+export type SyncPayload = Omit<Settings, "rev" | "theme" | "dashboard"> & {
   dashboard: Omit<Settings["dashboard"], "wallpaper"> & {
     wallpaper?: Settings["dashboard"]["wallpaper"];
   };
 };
 
-/** What is pushed: the settings without `rev`, and without the wallpaper when it is an image. */
+/**
+ * `updatedAt` for a LOCAL write: never at or below the stored stamp, so a local edit made after
+ * pulling a copy stamped by a device with a later clock still wins LWW, and two consecutive
+ * writes never share a stamp. (A pull keeps the remote stamp instead.)
+ */
+export function nextLocalUpdatedAt(now: number, prevUpdatedAt: number | undefined): number {
+  return Math.max(now, (prevUpdatedAt ?? 0) + 1);
+}
+
+/**
+ * What is pushed: the settings without `rev` and `theme` (device-specific), and without the
+ * wallpaper when it is an image.
+ */
 export function toSyncPayload(settings: Settings): SyncPayload {
-  const { rev: _rev, ...rest } = structuredClone(settings);
+  const { rev: _rev, theme: _theme, ...rest } = structuredClone(settings);
   const out: SyncPayload = rest;
   if (settings.dashboard.wallpaper.kind === "image") {
     const { wallpaper: _drop, ...dashboard } = out.dashboard;
     out.dashboard = dashboard;
   }
   return out;
+}
+
+function canonical(x: unknown): unknown {
+  if (Array.isArray(x)) return x.map(canonical);
+  if (typeof x !== "object" || x === null) return x;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(x).sort()) out[k] = canonical((x as Record<string, unknown>)[k]);
+  return out;
+}
+
+/**
+ * True when pushing `local` would write exactly `remoteRaw` (JSON-equal, key order ignored):
+ * after a pull applied the remote copy, a push would only echo it back.
+ */
+export function payloadEquals(local: Settings, remoteRaw: unknown): boolean {
+  const mine = JSON.parse(JSON.stringify(toSyncPayload(local))) as unknown;
+  return JSON.stringify(canonical(mine)) === JSON.stringify(canonical(remoteRaw));
 }
 
 /** Bytes storage.sync charges for one item: key + JSON value, UTF-8. */
@@ -48,13 +77,15 @@ function rawHasWallpaper(raw: unknown): boolean {
 /**
  * The local settings after applying a validated remote copy (`remote` = parseSettings(raw)):
  * remote values, `rev: local.rev + 1`, the REMOTE `updatedAt` (so it does not bounce back), and
- * this device's `syncSettings` flag. The local wallpaper is kept when the remote has none (an
- * image wallpaper is never pushed), or when either side's wallpaper is an image (device-specific).
+ * this device's `syncSettings` flag and `theme` (device-specific; ignored even when an older
+ * build pushed one). The local wallpaper is kept when the remote has none (an image wallpaper is
+ * never pushed), or when either side's wallpaper is an image (device-specific).
  */
 export function applyRemoteSettings(local: Settings, remote: Settings, raw: unknown): Settings {
   const next: Settings = {
     ...structuredClone(remote),
     syncSettings: local.syncSettings,
+    theme: local.theme,
     rev: local.rev + 1,
   };
   if (remote.updatedAt === undefined) delete next.updatedAt;

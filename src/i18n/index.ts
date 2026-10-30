@@ -1,7 +1,9 @@
 /**
- * UI strings. `t(key, subs?)` wraps chrome.i18n.getMessage and falls back to the bundled en
- * messages (public/_locales/en/messages.json) when the API is missing (unit tests) or returns
- * "" (unknown key). Keys are typed from the en file, so a missing key fails typecheck.
+ * UI strings. `t(key, subs?)` wraps chrome.i18n.getMessage. In dev (`wxt` serve) and unit tests
+ * it falls back to the bundled en messages (public/_locales/en/messages.json) when the API is
+ * missing or returns "" (unknown key); production builds compile the fallback out
+ * (`__TABITAT_I18N_FALLBACK__` is false, so the JSON is not bundled) and return the key.
+ * Keys are typed from the en file, so a missing key fails typecheck.
  */
 import en from "../../public/_locales/en/messages.json";
 
@@ -32,8 +34,11 @@ export function t(key: MsgKey, subs?: Sub | readonly Sub[]): string {
   } catch {
     // not in an extension context
   }
-  const entry = (en as Record<string, Entry>)[key];
-  return entry ? formatMessage(entry, list) : key;
+  if (__TABITAT_I18N_FALLBACK__) {
+    const entry = (en as Record<string, Entry>)[key];
+    if (entry) return formatMessage(entry, list);
+  }
+  return key;
 }
 
 /** `one` when n === 1, else `many`; both receive n as $1. */

@@ -1,7 +1,8 @@
 /**
  * Opt-in settings sync over storage.sync (docs/PHASE3.md §4, ARCHITECTURE §10). Only the
  * `settings` item is written. Last-write-wins on `updatedAt`:
- *  - push: after every `settings.update` while `syncSettings` is on, and in `settings.syncNow`;
+ *  - push: after every `settings.update` while `syncSettings` is on, and in `settings.syncNow`
+ *    (skipped when the pull just before it made the local copy identical to the remote one);
  *  - pull: at init (after migrations), on a storage.sync change of `settings`, when sync is
  *    turned on (before the first push) and in `settings.syncNow`. A pull writes the remote
  *    values with the REMOTE `updatedAt`, so it never bounces back, and it never pushes.
@@ -9,13 +10,14 @@
  * Every method expects the caller to hold lane `key:settings` (or to run inside init).
  */
 import * as v from "valibot";
-import { parseSettings } from "../core/model/schemas";
+import { fitSettingsWhitelist, parseSettings } from "../core/model/schemas";
 import type { Settings } from "../core/model/types";
 import { Keys } from "../core/model/types";
 import {
   applyRemoteSettings,
   classifySyncError,
   isRemoteNewer,
+  payloadEquals,
   SYNC_SETTINGS_KEY,
   type SyncErrorCode,
   syncItemBytes,
@@ -73,6 +75,13 @@ export class SettingsSync {
    * the settings now stored when it applied them, else null. No-op while sync is off.
    */
   async pull(opts: { newerThan?: number } = {}): Promise<Settings | null> {
+    return (await this.pullApplied(opts))?.settings ?? null;
+  }
+
+  /** `pull`, also returning the raw remote copy it applied. */
+  private async pullApplied(
+    opts: { newerThan?: number } = {},
+  ): Promise<{ settings: Settings; raw: unknown } | null> {
     const { ports, repo, log } = this.ctx;
     const local = await repo.getSettings();
     if (!local.syncSettings) return null;
@@ -92,7 +101,8 @@ export class SettingsSync {
     if (raw === undefined) return null;
     let remote: Settings;
     try {
-      remote = parseSettings(raw);
+      // An older build may have pushed a whitelist over today's limits: cut, do not reject.
+      remote = parseSettings(fitSettingsWhitelist(raw)?.raw ?? raw);
     } catch (e) {
       log.warn("[tabitat] remote settings are invalid; keeping local", e);
       await this.fail(st, "invalid_remote");
@@ -108,7 +118,7 @@ export class SettingsSync {
     if (keepError) status.error = st.error as string;
     await repo.setMany({ [Keys.settings]: next, [BgKeys.syncStatus]: status });
     await this.repairAlarmsAfter(local, next);
-    return next;
+    return { settings: next, raw };
   }
 
   /** Writes `settings` (minus rev / image wallpaper) to storage.sync; records the outcome. */
@@ -141,20 +151,28 @@ export class SettingsSync {
       }
       return next;
     }
-    let current = next;
-    if (!prev.syncSettings) {
-      current = (await this.pull({ newerThan: prev.updatedAt ?? 0 })) ?? next;
+    if (prev.syncSettings) {
+      await this.push(next);
+      return next;
     }
-    await this.push(current);
-    return current;
+    const pulled = await this.pullApplied({ newerThan: prev.updatedAt ?? 0 });
+    // Nothing to push when the pull made us identical to the remote copy.
+    if (!pulled || !payloadEquals(pulled.settings, pulled.raw)) {
+      await this.push(pulled?.settings ?? next);
+    }
+    return pulled?.settings ?? next;
   }
 
-  /** `settings.syncNow`: one pull, then one push. `invalid` while sync is off. */
+  /**
+   * `settings.syncNow`: one pull, then one push (skipped when the pull just made the local
+   * settings identical to the remote copy). `invalid` while sync is off.
+   */
   async syncNow(): Promise<SyncStatus> {
     const local = await this.ctx.repo.getSettings();
     if (!local.syncSettings) throw new RpcError("invalid", "settings sync is off");
-    const pulled = await this.pull();
-    return this.push(pulled ?? (await this.ctx.repo.getSettings()));
+    const pulled = await this.pullApplied();
+    if (pulled && payloadEquals(pulled.settings, pulled.raw)) return this.status();
+    return this.push(pulled?.settings ?? (await this.ctx.repo.getSettings()));
   }
 
   private async repairAlarmsAfter(prev: Settings, next: Settings): Promise<void> {
