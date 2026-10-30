@@ -1,7 +1,7 @@
 /** Live-tab view models: chrome.tabs.Tab -> UiTab (placeholders unwrapped for display). */
 import type { Color } from "@/core/model/types";
 import type { LiveTab } from "@/core/ops/types";
-import { parsePlaceholderUrl } from "@/core/ops/url";
+import { buildPlaceholderUrl, classifyUrl, parsePlaceholderUrl, schemeOf } from "@/core/ops/url";
 import { findDuplicates } from "@/core/suspend/rules";
 
 export interface UiTab {
@@ -57,22 +57,63 @@ export function mapGroup(g: chrome.tabGroups.TabGroup): UiGroup {
   return { id: g.id, title: g.title ?? "", color: g.color as Color, collapsed: g.collapsed };
 }
 
+const toLive = (t: UiTab): LiveTab => ({
+  id: t.id,
+  windowId: t.windowId,
+  url: t.rawUrl,
+  title: t.title,
+  index: t.index,
+  pinned: t.pinned,
+  active: t.active,
+  groupId: t.groupId,
+  discarded: t.discarded,
+  audible: t.audible,
+  ...(t.lastAccessed === undefined ? {} : { lastAccessed: t.lastAccessed }),
+});
+
+/**
+ * Duplicate groups (same rules as the worker: core findDuplicates over unwrapped URLs). Within
+ * a group the tab "Close duplicates" keeps comes first.
+ */
+export function duplicateGroups(tabs: readonly UiTab[], placeholderBase: string): UiTab[][] {
+  const byId = new Map(tabs.map((t) => [t.id, t]));
+  return findDuplicates(tabs.map(toLive), { placeholderBase }).map((g) =>
+    g.map((id) => byId.get(id)).filter((t): t is UiTab => t !== undefined),
+  );
+}
+
+/** The tabs "Close duplicates" would close: every group member except the kept (first) one. */
+export const duplicateExtras = (groups: readonly UiTab[][]): UiTab[] =>
+  groups.flatMap((g) => g.slice(1));
+
 /** How many tabs "Close duplicates" would close (same rules as the worker: core findDuplicates). */
 export function duplicateCount(tabs: readonly UiTab[], placeholderBase: string): number {
-  const live: LiveTab[] = tabs.map((t) => ({
-    id: t.id,
-    windowId: t.windowId,
-    url: t.rawUrl,
-    title: t.title,
-    index: t.index,
-    pinned: t.pinned,
-    active: t.active,
-    groupId: t.groupId,
-    discarded: t.discarded,
-    audible: t.audible,
-    ...(t.lastAccessed === undefined ? {} : { lastAccessed: t.lastAccessed }),
-  }));
-  return findDuplicates(live, { placeholderBase }).reduce((n, g) => n + g.length - 1, 0);
+  return duplicateExtras(duplicateGroups(tabs, placeholderBase)).length;
+}
+
+/**
+ * Whether "Suspend" is offered for a row (the worker's `tabs.suspend` rule: not active, pinned,
+ * audible, discarded or a placeholder; http(s) only; the whitelist is ignored).
+ */
+export function canSuspend(t: UiTab): boolean {
+  if (t.active || t.pinned || t.audible || t.discarded || t.placeholder) return false;
+  const scheme = schemeOf(t.rawUrl);
+  return scheme === "http:" || scheme === "https:";
+}
+
+/**
+ * URL that reopens a closed tab without loading it: our placeholder for http(s)/file/ftp, the URL
+ * itself for internal pages the browser can open directly, null for anything else.
+ */
+export function reopenUrl(
+  tab: Pick<UiTab, "url" | "title">,
+  placeholderBase: string,
+  workspaceId: string,
+): string | null {
+  const mode = classifyUrl(tab.url);
+  if (mode === "direct") return tab.url;
+  if (mode !== "placeholder") return null;
+  return buildPlaceholderUrl(placeholderBase, { u: tab.url, t: tab.title, w: workspaceId, s: "" });
 }
 
 /** A run of consecutive tabs: ungrouped (group null) or one tab group. */

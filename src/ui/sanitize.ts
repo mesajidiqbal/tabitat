@@ -4,7 +4,7 @@
  * UI keys on are dropped so a single bad entry never breaks a render. Pure.
  */
 import type { RecoveryPending } from "@/background/keys";
-import type { ClosedTab, Trash } from "@/core/model/types";
+import type { ClosedTab, QuickLink, Trash } from "@/core/model/types";
 
 type Obj = Record<string, unknown>;
 
@@ -30,4 +30,34 @@ export function sanitizeRecovery(raw: unknown): RecoveryPending | null {
 /** `recentlyClosed`: keeps entries that are objects with a string `url`. */
 export function sanitizeClosed(raw: unknown): ClosedTab[] {
   return withString(raw, "url");
+}
+
+/** `recovery:hint` (PHASE3 §1): a window of the last session that no live window matched. */
+export interface RecoveryHint {
+  generation: number;
+  unmatchedWindows: number;
+  at: number;
+}
+
+const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
+
+/** `recovery:hint`: null unless generation / unmatchedWindows / at are finite numbers. */
+export function sanitizeHint(raw: unknown): RecoveryHint | null {
+  if (!isPlainObject(raw)) return null;
+  const { generation, unmatchedWindows, at } = raw;
+  if (!isNum(generation) || !isNum(unmatchedWindows) || !isNum(at)) return null;
+  return { generation, unmatchedWindows, at };
+}
+
+/** `quicklinks`: keeps items that are objects with string `id` and `url` (title defaults to ""). */
+export function sanitizeQuickLinks(raw: unknown): QuickLink[] {
+  const items = isPlainObject(raw) ? raw.items : undefined;
+  return withString<Obj>(items, "url")
+    .filter((x) => typeof x.id === "string")
+    .map((x) => ({
+      id: x.id as string,
+      url: x.url as string,
+      title: typeof x.title === "string" ? x.title : "",
+      order: isNum(x.order) ? x.order : 0,
+    }));
 }

@@ -10,6 +10,33 @@
   color: var(--fg-subtle);
   font-size: var(--fs-xs);
 }
+.filterBtn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.menuBtn {
+  width: 24px;
+  height: 24px;
+}
+/* Saved links while a tab row is dragged over it (drop = park). */
+.dropZone {
+  border-radius: var(--radius);
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+}
+.dropHint {
+  padding: var(--sp-1) var(--sp-4);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.notice {
+  margin: 0;
+  color: var(--warn-fg);
+  font-size: var(--fs-sm);
+}
 .banner {
   display: flex;
   align-items: center;

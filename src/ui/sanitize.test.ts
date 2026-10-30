@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isPlainObject, sanitizeClosed, sanitizeRecovery, sanitizeTrash } from "./sanitize";
+import {
+  isPlainObject,
+  sanitizeClosed,
+  sanitizeHint,
+  sanitizeQuickLinks,
+  sanitizeRecovery,
+  sanitizeTrash,
+} from "./sanitize";
 
 describe("sanitizeTrash", () => {
   it("keeps plain objects with a string id", () => {
@@ -33,6 +40,44 @@ describe("sanitizeClosed", () => {
   });
   it("non-arrays read as empty", () => {
     for (const raw of [undefined, null, {}, "x"]) expect(sanitizeClosed(raw)).toEqual([]);
+  });
+});
+
+describe("sanitizeHint", () => {
+  it("keeps a well-formed recovery:hint", () => {
+    expect(sanitizeHint({ generation: 3, unmatchedWindows: 1, at: 5, extra: true })).toEqual({
+      generation: 3,
+      unmatchedWindows: 1,
+      at: 5,
+    });
+  });
+  it("is null for anything else", () => {
+    for (const raw of [undefined, null, [], "x", { generation: "3", unmatchedWindows: 1, at: 5 }])
+      expect(sanitizeHint(raw)).toBeNull();
+    expect(sanitizeHint({ generation: 1, unmatchedWindows: Number.NaN, at: 1 })).toBeNull();
+  });
+});
+
+describe("sanitizeQuickLinks", () => {
+  it("keeps items with string id and url; title / order default", () => {
+    const raw = {
+      items: [
+        { id: "a", url: "https://a.example/", title: "A", order: 2 },
+        { id: "b", url: "https://b.example/", title: 7 },
+        { id: 3, url: "https://c.example/" },
+        { id: "d" },
+        null,
+      ],
+      rev: 1,
+    };
+    expect(sanitizeQuickLinks(raw)).toEqual([
+      { id: "a", url: "https://a.example/", title: "A", order: 2 },
+      { id: "b", url: "https://b.example/", title: "", order: 0 },
+    ]);
+  });
+  it("non-objects read as empty", () => {
+    for (const raw of [undefined, null, [], { items: "x" }])
+      expect(sanitizeQuickLinks(raw)).toEqual([]);
   });
 });
 

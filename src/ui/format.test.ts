@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { unsortedDetail } from "./format";
+import { purgeLabel, unsortedDetail } from "./format";
+
+describe("purgeLabel", () => {
+  const DAY = 86_400_000;
+  const RET = 30 * DAY;
+  it("counts whole days left, rounded up", () => {
+    expect(purgeLabel(0, RET, 0)).toBe("Purged in 30 days");
+    expect(purgeLabel(0, RET, 29 * DAY + 1)).toBe("Purged in 1 day");
+    expect(purgeLabel(0, RET, 28.5 * DAY)).toBe("Purged in 2 days");
+  });
+  it("overdue items read as purged within a day", () => {
+    expect(purgeLabel(0, RET, RET)).toBe("Purged within a day");
+    expect(purgeLabel(0, RET, RET + DAY)).toBe("Purged within a day");
+  });
+});
 
 const tab = (title: string, url = "https://x.example/") => ({ title, url });
 

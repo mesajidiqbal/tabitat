@@ -13,7 +13,7 @@ const KIND = {
   tab: "kindTab",
   workspaceTab: "kindSaved",
   link: "kindLink",
-  quicklink: "kindLink",
+  quicklink: "kindQuicklink",
   closed: "kindClosed",
 } as const;
 

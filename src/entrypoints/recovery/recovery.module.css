@@ -58,6 +58,11 @@
   flex: 1;
   min-width: 200px;
 }
+.kindIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--fg-muted);
+}
 .actions {
   display: flex;
   flex-wrap: wrap;

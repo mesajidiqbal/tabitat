@@ -9,8 +9,10 @@ export default defineConfig({
     WxtVitest({ dev: { server: { port: 3999, strictPort: true } } }),
   ],
   test: {
+    // Component tests are named *.dom.test.tsx and opt into happy-dom per file
+    // (`// @vitest-environment happy-dom`); everything else runs in node.
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.dom.test.tsx"],
     exclude: ["tests/e2e/**", "node_modules/**", ".output*/**"],
   },
 });

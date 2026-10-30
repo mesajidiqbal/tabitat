@@ -1,6 +1,6 @@
 /** Small display helpers (time, hosts, favicons). */
 import { faviconPageUrl } from "@/core/ops/url";
-import { t } from "@/i18n";
+import { plural, t } from "@/i18n";
 
 let rtf: Intl.RelativeTimeFormat | null = null;
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
@@ -21,6 +21,14 @@ export function relTime(ts: number, now = Date.now()): string {
 
 export function absTime(ts: number): string {
   return new Date(ts).toLocaleString();
+}
+
+const DAY = 86_400_000;
+
+/** "Purged in N days" for a trash item (from deletedAt + retention; rounded up). */
+export function purgeLabel(deletedAt: number, retentionMs: number, now = Date.now()): string {
+  const days = Math.ceil((deletedAt + retentionMs - now) / DAY);
+  return days <= 0 ? t("purgedSoon") : plural(days, "purgedInOne", "purgedInMany");
 }
 
 /** Host for display ("example.com"), or the URL itself for hostless schemes. */

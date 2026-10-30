@@ -1,7 +1,8 @@
 /**
  * Universal search over the read model: live tabs (tab), every workspace's saved tabs
  * (workspaceTab; not the current window's own workspace, whose tabs are live), saved links
- * (link) and recently closed (closed), plus workspace names. The core SearchIndex is built on
+ * (link), quick links (quicklink; open in a new tab) and recently closed (closed), plus
+ * workspace names. The core SearchIndex is built on
  * first use and kept up to date incrementally by effects (never rebuilt per keystroke).
  */
 import { batch, effect, signal, untracked } from "@preact/signals";
@@ -79,6 +80,7 @@ function startEffects(): void {
   let saved = new Map<string, SearchDoc>();
   let links = new Map<string, SearchDoc>();
   let closed = new Map<string, SearchDoc>();
+  let quick = new Map<string, SearchDoc>();
   effect(() => {
     tabs = syncSource(
       tabs,
@@ -130,6 +132,17 @@ function startEffects(): void {
         kind: "closed",
         title: c.title || c.url,
         url: c.url,
+      })),
+    );
+  });
+  effect(() => {
+    quick = syncSource(
+      quick,
+      store.quicklinks.value.map((q) => ({
+        id: `ql:${q.id}`,
+        kind: "quicklink",
+        title: q.title || q.url,
+        url: q.url,
       })),
     );
   });

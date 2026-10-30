@@ -90,6 +90,17 @@ describe("search", () => {
     expect(search("giraffe")).toEqual([]);
   });
 
+  it("indexes quick links as kind quicklink (follows changes)", async () => {
+    const { store, search } = await load();
+    expect(search("okapi")).toEqual([]);
+    store.quicklinks.value = [{ id: "q1", url: "https://okapi.example/", title: "", order: 0 }];
+    expect(search("okapi").map((h) => [h.key, h.kind, h.title])).toEqual([
+      ["ql:q1", "quicklink", "https://okapi.example/"],
+    ]);
+    store.quicklinks.value = [];
+    expect(search("okapi")).toEqual([]);
+  });
+
   it("excludes the current window's active workspace from saved tabs (its tabs are live)", async () => {
     const { store, search } = await load();
     store.windowId.value = 1;

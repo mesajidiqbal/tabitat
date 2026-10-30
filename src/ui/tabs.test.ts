@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildPlaceholderUrl } from "@/core/ops/url";
-import { buildTabNodes, duplicateCount, mapTab, type TabNode, tabRuns, type UiTab } from "./tabs";
+import { buildPlaceholderUrl, parsePlaceholderUrl } from "@/core/ops/url";
+import {
+  buildTabNodes,
+  canSuspend,
+  duplicateCount,
+  duplicateExtras,
+  duplicateGroups,
+  mapTab,
+  reopenUrl,
+  type TabNode,
+  tabRuns,
+  type UiTab,
+} from "./tabs";
 
 const BASE = "chrome-extension://abc/suspended.html";
 
@@ -93,5 +104,43 @@ describe("ui tabs", () => {
       chromeTab({ id: 5, url: "https://other.example/" }),
     ].map((x) => mapTab(x, BASE));
     expect(duplicateCount(tabs, BASE)).toBe(2);
+  });
+
+  it("duplicate groups put the kept tab (active, then most recent) first", () => {
+    const tabs = [
+      chromeTab({ id: 1, index: 0, url: "https://dup.example/", lastAccessed: 10 }),
+      chromeTab({ id: 2, index: 1, url: "https://dup.example/", lastAccessed: 30 }),
+      chromeTab({ id: 3, index: 2, url: "https://dup.example/", active: true }),
+      chromeTab({ id: 4, index: 3, url: "https://solo.example/" }),
+    ].map((x) => mapTab(x, BASE));
+    const groups = duplicateGroups(tabs, BASE);
+    expect(groups.map((g) => g.map((x) => x.id))).toEqual([[3, 2, 1]]);
+    expect(duplicateExtras(groups).map((x) => x.id)).toEqual([2, 1]);
+  });
+
+  it("offers Suspend only for idle http(s) tabs that are not placeholders", () => {
+    const ph = buildPlaceholderUrl(BASE, { u: "https://a.example/", t: "", w: "", s: "" });
+    const ok = (over: Partial<chrome.tabs.Tab>) => canSuspend(mapTab(chromeTab(over), BASE));
+    expect(ok({})).toBe(true);
+    expect(ok({ url: "http://a.example/" })).toBe(true);
+    expect(ok({ active: true })).toBe(false);
+    expect(ok({ pinned: true })).toBe(false);
+    expect(ok({ audible: true })).toBe(false);
+    expect(ok({ discarded: true })).toBe(false);
+    expect(ok({ url: ph })).toBe(false);
+    expect(ok({ url: "chrome://settings/" })).toBe(false);
+    expect(ok({ url: "file:///tmp/x.html" })).toBe(false);
+  });
+
+  it("reopens closed tabs as placeholders (direct for internal pages, none for others)", () => {
+    const url = reopenUrl({ url: "https://a.example/x", title: "A" }, BASE, "ws1");
+    expect(parsePlaceholderUrl(url ?? "", BASE)).toEqual({
+      u: "https://a.example/x",
+      t: "A",
+      w: "ws1",
+      s: "",
+    });
+    expect(reopenUrl({ url: "chrome://history/", title: "" }, BASE, "")).toBe("chrome://history/");
+    expect(reopenUrl({ url: "javascript:alert(1)", title: "" }, BASE, "")).toBeNull();
   });
 });

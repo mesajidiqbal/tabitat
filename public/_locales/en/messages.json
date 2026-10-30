@@ -70,6 +70,9 @@
   "kindClosed": {
     "message": "closed"
   },
+  "kindQuicklink": {
+    "message": "Quick link"
+  },
   "kindNote": {
     "message": "note"
   },
@@ -265,6 +268,14 @@
       }
     }
   },
+  "closedTab": {
+    "message": "Closed “$TITLE$”",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
   "rowActions": {
     "message": "Actions for $TITLE$",
     "placeholders": {
@@ -281,6 +292,46 @@
   },
   "suspendedHint": {
     "message": "Not loaded yet (loads when you open it)"
+  },
+  "suspendedTooltip": {
+    "message": "Suspended"
+  },
+  "suspendTab": {
+    "message": "Suspend"
+  },
+  "neverSuspendSite": {
+    "message": "Never suspend this site"
+  },
+  "allowSuspendSite": {
+    "message": "Allow suspending this site"
+  },
+  "neverSuspendDone": {
+    "message": "$HOST$ will not be suspended",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "allowSuspendDone": {
+    "message": "$HOST$ can be suspended again",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "placeholderUntitled": {
+    "message": "Suspended tab"
+  },
+  "placeholderLoad": {
+    "message": "Click or press any key to load"
+  },
+  "placeholderCannotLoad": {
+    "message": "This address cannot be loaded from here"
+  },
+  "placeholderFooter": {
+    "message": "Suspended by Tabitat"
   },
   "activeTab": {
     "message": "(active tab)"
@@ -347,6 +398,29 @@
       }
     }
   },
+  "duplicate": {
+    "message": "Duplicate"
+  },
+  "duplicatesFilter": {
+    "message": "Duplicates ($COUNT$)",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "tabsMenu": {
+    "message": "Tabs actions"
+  },
+  "closeDupesAllWindows": {
+    "message": "Close duplicates in all windows"
+  },
+  "autoSuspendOff": {
+    "message": "Auto-suspend is off"
+  },
+  "turnOn": {
+    "message": "Turn on"
+  },
   "savedLinks": {
     "message": "Saved links"
   },
@@ -361,6 +435,12 @@
   },
   "linkTitle": {
     "message": "Title (optional)"
+  },
+  "alreadySaved": {
+    "message": "Already saved"
+  },
+  "dropToSave": {
+    "message": "Drop to save link"
   },
   "removeLink": {
     "message": "Remove link"
@@ -395,6 +475,12 @@
   },
   "restoreEllipsis": {
     "message": "Restore…"
+  },
+  "recoveryHint": {
+    "message": "A window from your last session was not restored"
+  },
+  "openRecovery": {
+    "message": "Open recovery"
   },
   "dashboardLink": {
     "message": "Dashboard"
@@ -615,6 +701,25 @@
         "content": "$1"
       }
     }
+  },
+  "purgedInOne": {
+    "message": "Purged in $COUNT$ day",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "purgedInMany": {
+    "message": "Purged in $COUNT$ days",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "purgedSoon": {
+    "message": "Purged within a day"
   },
   "restore": {
     "message": "Restore"

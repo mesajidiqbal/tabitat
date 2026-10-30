@@ -187,3 +187,70 @@ test("(e) recovery page lists session generations; quarantine delete works", asy
   await expect(rec.getByRole("heading", { name: /Quarantined records/ })).toHaveCount(0);
   await rec.close();
 });
+
+const tabRows = () => page.locator("[aria-labelledby=tabs-h][role=listbox] [role=option]");
+const tabRow = (path: string) => tabRows().and(page.locator(`[title$="${BASE}/${path}"]`));
+
+/** The window's tab whose URL is `url` (tab ids can change when Chrome discards a tab). */
+const findTab = (windowId: number, url: string) =>
+  page.evaluate(
+    async ([w, u]) => {
+      const t = (await chrome.tabs.query({ windowId: w })).find((x) => x.url === u);
+      return t ? { id: t.id ?? -1, discarded: t.discarded } : null;
+    },
+    [windowId, url] as const,
+  );
+
+test("(g) Suspend (z) on a background tab discards it and the row shows the glyph", async () => {
+  const url = `${BASE}/sleepy`;
+  await page.evaluate(
+    async ([windowId, u]) => chrome.tabs.create({ windowId, url: u, active: false }),
+    [w2, url] as const,
+  );
+  await page.goto(extUrl(`popup.html?window=${w2}`));
+  const row = tabRow("sleepy");
+  await expect(row).toBeVisible();
+  await expect(row.getByTestId("suspended")).toHaveCount(0);
+  // The row offers Suspend (key z) for an idle http tab -> tabs.suspend.
+  await row.focus();
+  await row.press("z");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect
+    .poll(async () => (await findTab(w2, url))?.discarded, { timeout: 10_000 })
+    .toBe(true);
+  await expect(row.getByTestId("suspended")).toBeVisible();
+  await expect(row.getByTestId("suspended")).toHaveAttribute("title", "Suspended");
+  const tab = await findTab(w2, url);
+  if (tab) await page.evaluate((id) => chrome.tabs.remove(id), tab.id);
+});
+
+test("(g2) duplicate chip, Duplicates filter, Close N dupes and Undo", async () => {
+  const url = `${BASE}/dupe`;
+  await page.evaluate(
+    async ([windowId, u]) => {
+      await chrome.tabs.create({ windowId, url: u, active: false });
+      await chrome.tabs.create({ windowId, url: u, active: false });
+    },
+    [w2, url] as const,
+  );
+  await page.goto(extUrl(`popup.html?window=${w2}`));
+  const dupes = tabRow("dupe");
+  await expect(dupes).toHaveCount(2);
+  // Only the copy that would be closed carries the chip.
+  await expect(dupes.filter({ hasText: "Duplicate" })).toHaveCount(1);
+  const filter = page.getByRole("button", { name: "Duplicates (1)" });
+  await filter.click();
+  await expect(filter).toHaveAttribute("aria-pressed", "true");
+  await expect(tabRows()).toHaveCount(2);
+  await filter.click();
+
+  const count = async () => (await windowUrls(w2)).filter((t) => t.url === url).length;
+  await page.getByRole("button", { name: "Close 1 dupe" }).click();
+  await expect.poll(count).toBe(1);
+  await expect(page.getByRole("status").getByText("Closed 1 duplicate tab")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close 1 dupe" })).toHaveCount(0);
+  // Undo recreates the closed copy (as a placeholder) in the same window.
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(count).toBe(2);
+  await expect(page.getByRole("button", { name: "Close 1 dupe" })).toBeEnabled();
+});

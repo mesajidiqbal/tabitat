@@ -9,6 +9,7 @@ import { useEffect } from "preact/hooks";
 import type { RecoveryPending } from "@/background/keys";
 import type {
   ClosedTab,
+  QuickLink,
   Settings,
   SwitchOp,
   Trash,
@@ -19,8 +20,16 @@ import type {
 import { DEFAULT_SETTINGS, KEY_PREFIX, Keys } from "@/core/model/types";
 import { isBlankPageUrl } from "@/core/ops/url";
 import { send } from "@/messaging/client";
-import { sanitizeClosed, sanitizeRecovery, sanitizeTrash } from "./sanitize";
-import { duplicateCount, mapGroup, mapTab, type UiGroup, type UiTab } from "./tabs";
+import {
+  type RecoveryHint,
+  sanitizeClosed,
+  sanitizeHint,
+  sanitizeQuickLinks,
+  sanitizeRecovery,
+  sanitizeTrash,
+} from "./sanitize";
+import type { UiGroup, UiTab } from "./tabs";
+import { duplicateExtras, duplicateGroups as groupDupes, mapGroup, mapTab } from "./tabs";
 import { applyTheme } from "./theme";
 
 export type { UiGroup, UiTab } from "./tabs";
@@ -28,6 +37,10 @@ export type { UiGroup, UiTab } from "./tabs";
 /** Background-owned keys (src/background/keys.ts BgKeys; not imported: it pulls in valibot). */
 export const RECOVERY_KEY = "recovery:pending";
 export const IMPORT_FAILED_KEY = "import:failed";
+export const RECOVERY_HINT_KEY = "recovery:hint";
+
+/** Base URL of our placeholder page (unwraps suspended.html tabs). */
+export const placeholderBase = (): string => chrome.runtime.getURL("/suspended.html");
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null;
 const asMeta = (x: unknown) =>
@@ -59,6 +72,9 @@ export const store = {
   pendingSwitch: signal<{ to: string } | null>(null),
   recovery: signal<RecoveryPending | null>(null),
   importFailed: signal<Record<string, unknown> | null>(null),
+  /** `recovery:hint`: a window of the last session was not restored. */
+  hint: signal<RecoveryHint | null>(null),
+  quicklinks: signal<QuickLink[]>([]),
   settings: signal<Settings>(DEFAULT_SETTINGS),
   recentlyClosed: signal<ClosedTab[]>([]),
   trash: signal<Trash>({ items: [] }),
@@ -97,10 +113,14 @@ export const busy = computed(() => op.value !== null || store.pendingSwitch.valu
 export const liveTabCount = computed(
   () => store.liveTabs.value.filter((x) => !x.pinned && !isBlankPageUrl(x.url)).length,
 );
-/** How many tabs "Close duplicates" would close in the current window. */
-export const windowDuplicates = computed(() =>
-  duplicateCount(store.liveTabs.value, chrome.runtime.getURL("/suspended.html")),
+/** Duplicate groups of the current window (core findDuplicates); the kept tab first. */
+export const duplicateGroups = computed(() => groupDupes(store.liveTabs.value, placeholderBase()));
+/** Ids of the tabs "Close duplicates" would close (every group member but the kept one). */
+export const duplicateIds = computed(
+  () => new Set(duplicateExtras(duplicateGroups.value).map((x) => x.id)),
 );
+/** How many tabs "Close duplicates" would close in the current window. */
+export const windowDuplicates = computed(() => duplicateIds.value.size);
 export const recoveryAvailable = computed(() => {
   const w = store.windowId.value;
   return (
@@ -134,6 +154,8 @@ function applyChange(key: string, raw: unknown): void {
   else if (key === Keys.trash) s.trash.value = sanitizeTrash(raw);
   else if (key === RECOVERY_KEY) s.recovery.value = sanitizeRecovery(raw);
   else if (key === IMPORT_FAILED_KEY) s.importFailed.value = isObj(raw) ? raw : null;
+  else if (key === RECOVERY_HINT_KEY) s.hint.value = sanitizeHint(raw);
+  else if (key === Keys.quicklinks) s.quicklinks.value = sanitizeQuickLinks(raw);
 }
 
 async function loadWorkspaces(ids: string[]): Promise<void> {
@@ -255,6 +277,8 @@ async function start(): Promise<void> {
     Keys.trash,
     RECOVERY_KEY,
     IMPORT_FAILED_KEY,
+    RECOVERY_HINT_KEY,
+    Keys.quicklinks,
   ]);
   const [w, wins, base] = await Promise.all([
     resolveWindowId(),

@@ -112,6 +112,8 @@ export const IconDupes = (p?: P) =>
     p,
   );
 export const IconCheck = (p?: P) => svg(<path d="M3.5 8.5 6.5 11.5 12.5 4.5" />, p);
+export const IconNote = (p?: P) =>
+  svg(<path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12M6 8h4M6 10.5h4" />, p);
 export const IconLink = (p?: P) =>
   svg(
     <path d="M7 9a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 9 3.5l-.75.75M9 7a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 7 12.5l.75-.75" />,

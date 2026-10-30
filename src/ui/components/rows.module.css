@@ -75,6 +75,10 @@
   color: var(--fg-muted);
   font-size: var(--fs-xs);
 }
+.chip {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
 .fav {
   flex: none;
   width: 16px;

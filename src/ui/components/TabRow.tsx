@@ -1,30 +1,19 @@
 /**
  * One row of a tab-like list (live tabs, saved links, recently closed): favicon, title, optional
- * host/meta, hover actions. Keyboard: Enter opens, Delete runs the action marked `del`, an
- * action's `key` runs it, ContextMenu / Shift+F10 opens a menu of all actions.
+ * host/meta/chip, hover actions (RowActions). Keyboard: Enter opens, Delete runs the action
+ * marked `del`, an action's `key` runs it, ContextMenu / Shift+F10 opens a menu of all actions.
+ * Draggable when `onDragStart` is given (tab rows onto Saved links).
  */
-import type { ComponentChildren } from "preact";
 import { useRef } from "preact/hooks";
 import { t } from "@/i18n";
 import { hostLabel } from "../format";
 import type { RovingItem } from "../hooks/useRoving";
 import { IconPin, IconSleep } from "../icons";
 import { Favicon } from "./Favicon";
-import { IconButton } from "./IconButton";
-import { Kbd } from "./Kbd";
-import { Menu } from "./Menu";
+import { type RowAction, RowActions, rowShortcuts } from "./RowActions";
 import s from "./rows.module.css";
 
-export interface RowAction {
-  label: string;
-  icon: ComponentChildren;
-  run: () => void;
-  /** Also bound to the Delete key on the row. */
-  del?: boolean;
-  /** Single-letter shortcut on the row (e.g. "p" for Park). */
-  key?: string;
-  danger?: boolean;
-}
+export type { RowAction } from "./RowActions";
 
 export interface TabRowProps {
   title: string;
@@ -35,10 +24,15 @@ export interface TabRowProps {
   current?: boolean;
   pinned?: boolean;
   suspended?: boolean;
+  /** Tooltip of the suspended glyph (default: "not loaded yet"). */
+  suspendedHint?: string;
+  /** Small text chip after the title (e.g. "Duplicate"). */
+  chip?: string;
   showHost?: boolean;
   meta?: string;
   inGroup?: boolean;
   disabled?: boolean;
+  onDragStart?: (e: DragEvent) => void;
 }
 
 export function TabRow(p: TabRowProps) {
@@ -62,11 +56,7 @@ export function TabRow(p: TabRowProps) {
     }
     p.item.onKeyDown(e);
   };
-  const shortcuts = [
-    ...(del ? ["Delete"] : []),
-    ...actions.flatMap((a) => (a.key ? [a.key] : [])),
-    ...(actions.length > 0 ? ["Shift+F10", "ContextMenu"] : []),
-  ].join(" ");
+  const shortcuts = rowShortcuts(actions);
   const two = p.showHost && p.url;
   const cls = [
     s.row,
@@ -75,6 +65,7 @@ export function TabRow(p: TabRowProps) {
     p.suspended && s.suspended,
     p.inGroup && s.inGroup,
   ];
+  const drag = p.onDragStart && !p.disabled;
   return (
     <div
       role="option"
@@ -84,6 +75,8 @@ export function TabRow(p: TabRowProps) {
       class={cls.filter(Boolean).join(" ")}
       title={p.url ? `${p.title}\n${p.url}` : p.title}
       tabIndex={p.item.tabIndex}
+      draggable={drag ? true : undefined}
+      onDragStart={drag ? p.onDragStart : undefined}
       ref={(el) => {
         row.current = el;
         p.item.ref(el);
@@ -97,8 +90,9 @@ export function TabRow(p: TabRowProps) {
         <span class={s.title}>{p.title || p.url}</span>
         {p.showHost && p.url && <span class={s.sub}>{hostLabel(p.url)}</span>}
       </span>
+      {p.chip && <span class={`${s.tag} ${s.chip}`}>{p.chip}</span>}
       {p.suspended && (
-        <span class={s.tag} title={t("suspendedHint")}>
+        <span class={s.tag} title={p.suspendedHint ?? t("suspendedHint")} data-testid="suspended">
           <IconSleep size={12} />
           <span class="sr-only">{t("suspended")}</span>
         </span>
@@ -111,43 +105,13 @@ export function TabRow(p: TabRowProps) {
       )}
       {p.current && <span class="sr-only">{t("activeTab")}</span>}
       {p.meta && <span class={s.meta}>{p.meta}</span>}
-      {actions.length > 0 && (
-        <span class={s.actions}>
-          {actions.map((a) => (
-            <IconButton
-              key={a.label}
-              label={a.label}
-              icon={a.icon}
-              tabIndex={-1}
-              danger={a.danger}
-              disabled={p.disabled}
-              onClick={(e) => {
-                e.stopPropagation();
-                a.run();
-              }}
-            />
-          ))}
-        </span>
-      )}
-      {actions.length > 0 && (
-        <Menu
-          label={t("rowActions", p.title || p.url)}
-          trigger={null}
-          wrapClass={s.menuAnchor}
-          triggerClass={s.menuTrigger}
-          triggerRef={menuBtn}
-          tabIndex={-1}
-          returnFocus={() => row.current?.focus()}
-          items={actions.map((a) => ({
-            label: a.label,
-            icon: a.icon,
-            danger: a.danger,
-            disabled: p.disabled,
-            hint: a.del ? <Kbd>Del</Kbd> : a.key ? <Kbd>{a.key.toUpperCase()}</Kbd> : undefined,
-            onSelect: a.run,
-          }))}
-        />
-      )}
+      <RowActions
+        actions={actions}
+        title={p.title || p.url}
+        disabled={p.disabled}
+        menuRef={menuBtn}
+        returnFocus={() => row.current?.focus()}
+      />
     </div>
   );
 }

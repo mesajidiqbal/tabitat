@@ -1,4 +1,7 @@
-/** SAVED LINKS of the active workspace: open as tab, remove (undo toast), add form. */
+/**
+ * SAVED LINKS of the active workspace: open as tab, remove (undo toast), add form ("Already
+ * saved" when the normalized URL exists). Drop zone for dragged tab rows (= park, like `p`).
+ */
 import { useState } from "preact/hooks";
 import { t } from "@/i18n";
 import { send } from "@/messaging/client";
@@ -11,6 +14,7 @@ import { TabRow } from "../components/TabRow";
 import { useRoving } from "../hooks/useRoving";
 import { IconClose, IconPlus } from "../icons";
 import { activeMeta, store } from "../store";
+import { isSavedLink, parkTab, TAB_DRAG_TYPE } from "../tabActions";
 import s from "./sections.module.css";
 
 function LinkForm({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }) {
@@ -19,10 +23,13 @@ function LinkForm({ workspaceId, onClose }: { workspaceId: string; onClose: () =
   const [url, setUrl] = useState(web ? tab.url : "");
   const [title, setTitle] = useState(web ? tab.title : "");
   const [error, setError] = useState<string | null>(null);
+  const [dup, setDup] = useState(false);
   const submit = async (e: Event) => {
     e.preventDefault();
+    const u = url.trim();
+    if (isSavedLink(workspaceId, u)) return setDup(true);
     try {
-      await send("link.add", { workspaceId, url: url.trim(), title: title.trim() || url.trim() });
+      await send("link.add", { workspaceId, url: u, title: title.trim() || u });
       onClose();
     } catch (err) {
       setError(errorText(err));
@@ -48,7 +55,10 @@ function LinkForm({ workspaceId, onClose }: { workspaceId: string; onClose: () =
         aria-label={t("linkUrl")}
         placeholder="https://"
         value={url}
-        onInput={(e) => setUrl(e.currentTarget.value)}
+        onInput={(e) => {
+          setUrl(e.currentTarget.value);
+          setDup(false);
+        }}
       />
       <input
         class={c.input}
@@ -66,6 +76,11 @@ function LinkForm({ workspaceId, onClose }: { workspaceId: string; onClose: () =
           {t("add")}
         </button>
       </div>
+      {dup && (
+        <p class={s.notice} role="status">
+          {t("alreadySaved")}
+        </p>
+      )}
       {error && (
         <p class={f.err} role="alert">
           {error}
@@ -75,14 +90,41 @@ function LinkForm({ workspaceId, onClose }: { workspaceId: string; onClose: () =
   );
 }
 
+const draggingTab = (e: DragEvent) => e.dataTransfer?.types.includes(TAB_DRAG_TYPE) === true;
+
 export function LinksSection(p: { variant: "popup" | "panel" }) {
   const meta = activeMeta.value;
   const [adding, setAdding] = useState(false);
+  const [over, setOver] = useState(false);
   const links = meta ? [...meta.resources].sort((a, b) => a.order - b.order) : [];
   const roving = useRoving(links.length);
   if (!meta) return null;
+  const onDragOver = (e: DragEvent) => {
+    if (!draggingTab(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    if (!over) setOver(true);
+  };
+  const onDragLeave = (e: DragEvent) => {
+    const to = e.relatedTarget as Node | null;
+    if (!to || !(e.currentTarget as HTMLElement).contains(to)) setOver(false);
+  };
+  const onDrop = (e: DragEvent) => {
+    if (!draggingTab(e)) return;
+    e.preventDefault();
+    setOver(false);
+    const id = Number(e.dataTransfer?.getData(TAB_DRAG_TYPE));
+    if (Number.isInteger(id) && id >= 0) void parkTab(id, meta.id);
+  };
   return (
-    <section class={s.section} aria-labelledby="links-h">
+    <section
+      class={`${s.section} ${over ? s.dropZone : ""}`}
+      aria-labelledby="links-h"
+      onDragOver={onDragOver}
+      onDragEnter={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <SectionHeader
         id="links-h"
         title={t("savedLinks")}
@@ -99,8 +141,9 @@ export function LinksSection(p: { variant: "popup" | "panel" }) {
           {t("add")}
         </button>
       </SectionHeader>
+      {over && <p class={s.dropHint}>{t("dropToSave")}</p>}
       {adding && <LinkForm key={meta.id} workspaceId={meta.id} onClose={() => setAdding(false)} />}
-      {links.length === 0 && !adding && <p class={s.more}>{t("noLinksHint")}</p>}
+      {links.length === 0 && !adding && !over && <p class={s.more}>{t("noLinksHint")}</p>}
       {links.length > 0 && (
         <div role="listbox" aria-labelledby="links-h" class={r.list}>
           {links.map((l, i) => (

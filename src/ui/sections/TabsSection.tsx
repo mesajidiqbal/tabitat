@@ -1,26 +1,83 @@
-/** TABS IN THIS WINDOW: live tabs grouped by tab group; activate / close / park. */
+/**
+ * TABS IN THIS WINDOW: live tabs grouped by tab group; activate / close (undo) / park / suspend.
+ * "Duplicates (N)" filters to duplicate groups (kept tab first). Rows drag onto Saved links.
+ */
 import { useState } from "preact/hooks";
+import { hostOf, schemeOf } from "@/core/ops/url";
+import { isWhitelisted } from "@/core/suspend/rules";
 import { t } from "@/i18n";
-import { send } from "@/messaging/client";
-import { activateTab, attempt } from "../actions";
+import { activateTab } from "../actions";
+import c from "../components/controls.module.css";
+import { Menu } from "../components/Menu";
 import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { TabGroupHeader } from "../components/TabGroupHeader";
 import { type RowAction, TabRow } from "../components/TabRow";
-import { showToast } from "../components/Toast";
 import { useRoving } from "../hooks/useRoving";
-import { IconClose, IconPark } from "../icons";
-import { activeWorkspaceId, busy, store } from "../store";
-import { buildTabNodes, tabRuns, type UiTab } from "../tabs";
+import { IconClose, IconDupes, IconMore, IconPark, IconSleep } from "../icons";
+import {
+  activeWorkspaceId,
+  busy,
+  duplicateGroups,
+  duplicateIds,
+  store,
+  windowDuplicates,
+} from "../store";
+import {
+  closeDuplicates,
+  closeTab,
+  parkTab,
+  suspendTab,
+  TAB_DRAG_TYPE,
+  toggleSiteWhitelist,
+} from "../tabActions";
+import { buildTabNodes, canSuspend, type TabRun, tabRuns, type UiTab } from "../tabs";
 import { colorVar } from "../theme";
 import s from "./sections.module.css";
 import { WindowActions } from "./WindowActions";
 
+function rowActions(tab: UiTab, ws: string | null): RowAction[] {
+  const actions: RowAction[] = [
+    {
+      label: t("closeTab"),
+      icon: <IconClose size={14} />,
+      run: () => void closeTab(tab),
+      del: true,
+    },
+  ];
+  if (ws && !tab.pinned) {
+    const run = () => void parkTab(tab.id, ws);
+    actions.push({ label: t("parkTab"), icon: <IconPark size={14} />, run, key: "p" });
+  }
+  if (canSuspend(tab)) {
+    const run = () => void suspendTab(tab.id);
+    actions.push({ label: t("suspendTab"), icon: <IconSleep size={14} />, run, key: "z" });
+  }
+  const scheme = schemeOf(tab.url);
+  const host = scheme === "http:" || scheme === "https:" ? hostOf(tab.url) : null;
+  if (host) {
+    const listed = isWhitelisted(host, store.settings.value.suspend.whitelist);
+    actions.push({
+      label: t(listed ? "allowSuspendSite" : "neverSuspendSite"),
+      icon: <IconSleep size={14} />,
+      run: () => void toggleSiteWhitelist(host),
+      menuOnly: true,
+    });
+  }
+  return actions;
+}
+
 export function TabsSection(p: { variant: "popup" | "panel" }) {
   const tabs = store.liveTabs.value;
   const ws = activeWorkspaceId.value;
+  const dupes = windowDuplicates.value;
+  const extras = duplicateIds.value;
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
-  const runs = tabRuns(tabs, store.groups.value);
+  const [onlyDupes, setOnlyDupes] = useState(false);
+  const filtering = onlyDupes && dupes > 0;
+  const runs: TabRun[] = filtering
+    ? [{ group: null, groupId: -1, tabs: duplicateGroups.value.flat() }]
+    : tabRuns(tabs, store.groups.value);
   const nodes = buildTabNodes(runs, collapsed);
   const tabPos = new Map<number, number>();
   const headerPos = new Map<number, number>();
@@ -32,47 +89,59 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
   const disabled = busy.value;
   const panel = p.variant === "panel";
 
-  const row = (tab: UiTab, inGroup: boolean) => {
-    const actions: RowAction[] = [
-      {
-        label: t("closeTab"),
-        icon: <IconClose size={14} />,
-        run: () => void chrome.tabs.remove(tab.id),
-        del: true,
-      },
-    ];
-    if (ws && !tab.pinned) {
-      actions.push({
-        label: t("parkTab"),
-        icon: <IconPark size={14} />,
-        run: () =>
-          void attempt(() => send("tabs.park", { tabId: tab.id, workspaceId: ws })).then(
-            (link) => link && showToast({ message: t("parked", link.title || link.url) }),
-          ),
-        key: "p",
-      });
-    }
-    return (
-      <TabRow
-        key={tab.id}
-        title={tab.title}
-        url={tab.url}
-        item={roving.item(tabPos.get(tab.id) ?? -1)}
-        onOpen={() => void activateTab(tab.id, tab.windowId)}
-        actions={actions}
-        current={tab.active}
-        pinned={tab.pinned}
-        suspended={tab.placeholder || tab.discarded}
-        showHost={panel}
-        inGroup={inGroup}
-        disabled={disabled}
-      />
-    );
-  };
+  const row = (tab: UiTab, inGroup: boolean) => (
+    <TabRow
+      key={tab.id}
+      title={tab.title}
+      url={tab.url}
+      item={roving.item(tabPos.get(tab.id) ?? -1)}
+      onOpen={() => void activateTab(tab.id, tab.windowId)}
+      actions={rowActions(tab, ws)}
+      current={tab.active}
+      pinned={tab.pinned}
+      suspended={tab.placeholder || tab.discarded}
+      suspendedHint={tab.discarded ? t("suspendedTooltip") : undefined}
+      chip={extras.has(tab.id) ? t("duplicate") : undefined}
+      showHost={panel}
+      inGroup={inGroup}
+      disabled={disabled}
+      onDragStart={
+        ws && !tab.pinned
+          ? (e) => {
+              e.dataTransfer?.setData(TAB_DRAG_TYPE, String(tab.id));
+              if (e.dataTransfer) e.dataTransfer.effectAllowed = "copyMove";
+            }
+          : undefined
+      }
+    />
+  );
 
   return (
     <section class={s.section} aria-labelledby="tabs-h">
-      <SectionHeader id="tabs-h" title={t("tabsInWindow")} count={tabs.length} sticky={panel} />
+      <SectionHeader id="tabs-h" title={t("tabsInWindow")} count={tabs.length} sticky={panel}>
+        {dupes > 0 && (
+          <button
+            type="button"
+            class={`${c.btn} ${c.ghost} ${s.addBtn} ${s.filterBtn}`}
+            aria-pressed={filtering}
+            onClick={() => setOnlyDupes(!filtering)}
+          >
+            <IconDupes size={14} />
+            {t("duplicatesFilter", dupes)}
+          </button>
+        )}
+        {panel && (
+          <Menu
+            label={t("tabsMenu")}
+            trigger={<IconMore size={14} />}
+            triggerClass={`${c.iconBtn} ${s.menuBtn}`}
+            disabled={disabled}
+            items={[
+              { label: t("closeDupesAllWindows"), onSelect: () => void closeDuplicates(true) },
+            ]}
+          />
+        )}
+      </SectionHeader>
       {panel && (
         <div class={s.toolbar}>
           <WindowActions />
