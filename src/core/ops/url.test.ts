@@ -4,12 +4,14 @@ import {
   buildPlaceholderUrl,
   classifyUrl,
   hostOf,
+  isBlankPageUrl,
   isDangerousUrl,
   isPlaceholderUrl,
   isRestorableUrl,
   isSameSite,
   normalizeForMatch,
   parsePlaceholderUrl,
+  sanitizeFavIconUrl,
   schemeOf,
   unwrapUrl,
 } from "./url";
@@ -170,6 +172,38 @@ describe("placeholder urls", () => {
     expect(unwrapUrl("https://x.com", BASE)).toBe("https://x.com");
     expect(isPlaceholderUrl("https://x.com", BASE)).toBe(false);
   });
+});
+
+describe("isBlankPageUrl", () => {
+  it.each([
+    "about:blank",
+    "ABOUT:BLANK",
+    "about:blank#x",
+    "chrome://newtab/",
+    "chrome://newtab",
+    "chrome://new-tab-page/",
+    "edge://newtab/",
+    "brave://newtab/",
+  ])("%s is blank", (u) => expect(isBlankPageUrl(u)).toBe(true));
+  it.each(["about:srcdoc", "chrome://settings", "https://newtab.com", "chrome://newtab/x", ""])(
+    "%s is not",
+    (u) => expect(isBlankPageUrl(u)).toBe(false),
+  );
+});
+
+describe("sanitizeFavIconUrl", () => {
+  it.each([
+    ["https://a.com/f.ico", "https://a.com/f.ico"],
+    ["http://a.com/f.ico", "http://a.com/f.ico"],
+    ["chrome-extension://id/_favicon/?pageUrl=x", "chrome-extension://id/_favicon/?pageUrl=x"],
+    ["chrome://favicon/https://a.com", "chrome://favicon/https://a.com"],
+    ["data:image/png;base64,AAAA", undefined],
+    ["blob:https://a.com/x", undefined],
+    ["javascript:x", undefined],
+    ["garbage", undefined],
+    ["", undefined],
+    [undefined, undefined],
+  ])("%s -> %s", (input, out) => expect(sanitizeFavIconUrl(input)).toBe(out));
 });
 
 describe("hosts", () => {

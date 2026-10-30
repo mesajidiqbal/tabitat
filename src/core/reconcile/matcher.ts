@@ -4,7 +4,7 @@
  */
 import type { WorkspaceId, WorkspaceMeta, WorkspaceTabs } from "../model/types";
 import type { LiveWindow } from "../ops/types";
-import { classifyUrl, normalizeForMatch, parsePlaceholderUrl } from "../ops/url";
+import { classifyUrl, isBlankPageUrl, normalizeForMatch, parsePlaceholderUrl } from "../ops/url";
 
 export const SIMILARITY_THRESHOLD = 0.6;
 
@@ -53,7 +53,9 @@ function propose(
     const ph = parsePlaceholderUrl(tab.url, base);
     const url = ph?.u ?? tab.url;
     // Same filter as snapshotWindow, so the sets compare like with like.
-    if (classifyUrl(url, { directSchemes }) !== "skip") urls.add(normalizeForMatch(url));
+    if (classifyUrl(url, { directSchemes }) !== "skip" && !isBlankPageUrl(url)) {
+      urls.add(normalizeForMatch(url));
+    }
     if (!ph) continue;
     placeholders++;
     if (known.has(ph.w)) hints.set(ph.w, (hints.get(ph.w) ?? 0) + 1);

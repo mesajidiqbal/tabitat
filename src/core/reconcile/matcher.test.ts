@@ -75,6 +75,24 @@ describe("matchWindows", () => {
     ).toBe("similarity");
   });
 
+  it("ignores blank / new-tab pages in the window's URL set", () => {
+    const win = liveWindow(
+      [
+        { url: "https://b1.com" },
+        { url: "https://b2.com" },
+        { url: "chrome://newtab/" },
+        { url: "about:blank" },
+      ],
+      [],
+      9,
+    );
+    expect(matchWindows([win], [B], opts)[0]).toEqual({
+      windowId: 9,
+      workspaceId: "B",
+      reason: "similarity",
+    });
+  });
+
   it("returns none below the threshold", () => {
     const win = liveWindow([{ url: "https://a1.com" }, { url: "https://zz.com" }], [], 3);
     expect(matchWindows([win], [A], opts)[0]?.reason).toBe("none");

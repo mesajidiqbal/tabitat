@@ -142,3 +142,32 @@ export function normalizeForMatch(url: string): string {
   if (!u.search && s.endsWith("/")) s = s.replace(/\/+$/, "");
   return s;
 }
+
+/** New-tab / blank pages (any browser). Never saved; always closed on switch. */
+export const BLANK_PAGE_URLS: readonly string[] = [
+  "about:blank",
+  "chrome://newtab",
+  "chrome://new-tab-page",
+  "edge://newtab",
+  "brave://newtab",
+];
+
+/** True for about:blank and the browsers' new-tab pages (hash, case and trailing slash ignored). */
+export function isBlankPageUrl(url: string): boolean {
+  return BLANK_PAGE_URLS.includes(normalizeForMatch(url.trim()).toLowerCase());
+}
+
+/** Favicon schemes safe to store: http(s), chrome-extension: (favicon API) and chrome:. */
+export const FAVICON_SCHEMES: readonly string[] = [
+  "http:",
+  "https:",
+  "chrome-extension:",
+  "chrome:",
+];
+
+/** The favicon URL if it may be stored (no data:, blob:, javascript:, …), else undefined. */
+export function sanitizeFavIconUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const scheme = schemeOf(url);
+  return scheme !== null && FAVICON_SCHEMES.includes(scheme) ? url : undefined;
+}

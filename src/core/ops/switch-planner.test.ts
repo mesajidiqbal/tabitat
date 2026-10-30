@@ -315,6 +315,31 @@ describe("planSwitch — directSchemes", () => {
   });
 });
 
+describe("planSwitch — blank tabs", () => {
+  it("closes blank/new-tab pages (outgoing) but never saves them", () => {
+    const window = liveWindow([
+      { id: 1, url: "https://pinned.com", pinned: true },
+      { id: 2, url: "https://a.com" },
+      { id: 3, url: "chrome://newtab/", active: true },
+      { id: 4, url: "about:blank" },
+      { id: 5, url: "edge://newtab/" }, // foreign scheme on Chrome, but blank: closed, not retained
+      { id: 6, url: "edge://settings" }, // foreign, not blank: retained
+    ]);
+    const plan = planSwitch(input({ window }));
+    expect(plan.op.outgoingTabIds).toEqual([2, 3, 4, 5]);
+    expect(plan.retainedTabIds).toEqual([6]);
+    expect(plan.outgoingSnapshot?.tabs.map((t) => t.url)).toEqual(["https://a.com"]);
+  });
+
+  it("a window holding only a new-tab page is replaced by the incoming workspace", () => {
+    const window = liveWindow([{ id: 7, url: "chrome://newtab/", active: true }]);
+    const plan = planSwitch(input({ window, from: null }));
+    expect(plan.op.outgoingTabIds).toEqual([7]);
+    expect(plan.outgoingSnapshot).toEqual({ tabs: [], updatedAt: NOW, rev: 1 });
+    expect(specs(plan).map((s) => s.savedTabId)).toEqual(["b1", "b2", "b3"]);
+  });
+});
+
 describe("planSwitch — same workspace", () => {
   it("throws PlanError(same_workspace) when from === to", () => {
     expect(() => planSwitch(input({ from: "wsB", to: "wsB" }))).toThrow(PlanError);

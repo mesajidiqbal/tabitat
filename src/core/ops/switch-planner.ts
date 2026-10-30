@@ -6,7 +6,7 @@ import type { SavedTab, SavedTabId, SwitchOp, SwitchStage, WorkspaceId } from ".
 import { LIMITS } from "../model/types";
 import { snapshotWindow } from "./snapshot";
 import type { CreateSpec, GroupSpec, OpeningPlan, SwitchPlan, SwitchPlannerInput } from "./types";
-import { buildPlaceholderUrl, classifyUrl, unwrapUrl } from "./url";
+import { buildPlaceholderUrl, classifyUrl, isBlankPageUrl, unwrapUrl } from "./url";
 
 export type PlanErrorCode = "same_workspace";
 
@@ -136,8 +136,12 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
   const nonPinned = window.tabs.filter((t) => !t.pinned).sort((a, b) => a.index - b.index);
   const pinnedCount = window.tabs.length - nonPinned.length;
   const classify = { directSchemes: input.directSchemes };
-  const isRetained = (url: string) =>
-    classifyUrl(unwrapUrl(url, input.placeholderBase), classify) === "skip";
+  // Blank/new-tab pages are never retained (always closed on switch, never saved), even when
+  // their scheme is foreign to this browser (e.g. edge://newtab on Chrome).
+  const isRetained = (url: string) => {
+    const real = unwrapUrl(url, input.placeholderBase);
+    return !isBlankPageUrl(real) && classifyUrl(real, classify) === "skip";
+  };
   const outgoing = nonPinned.filter((t) => !isRetained(t.url));
   const retainedTabIds = nonPinned.filter((t) => isRetained(t.url)).map((t) => t.id);
 

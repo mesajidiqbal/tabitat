@@ -3,7 +3,13 @@
  */
 import type { SavedTab, SavedTabGroup, WorkspaceTabs } from "../model/types";
 import type { LiveGroup, LiveTab, LiveWindow } from "./types";
-import { classifyUrl, normalizeForMatch, parsePlaceholderUrl } from "./url";
+import {
+  classifyUrl,
+  isBlankPageUrl,
+  normalizeForMatch,
+  parsePlaceholderUrl,
+  sanitizeFavIconUrl,
+} from "./url";
 
 export interface SnapshotOptions {
   /** Runtime URL of suspended.html. */
@@ -126,6 +132,8 @@ export function snapshotWindow(
     const ph = parsePlaceholderUrl(t.url, opts.placeholderBase);
     const url = ph?.u ?? t.url;
     if (classifyUrl(url, { directSchemes: opts.directSchemes }) === "skip") continue;
+    // Blank/new-tab pages carry no content: never saved (planSwitch still closes them).
+    if (isBlankPageUrl(url)) continue;
     cands.push({
       live: t,
       url,
@@ -148,7 +156,10 @@ export function snapshotWindow(
     const id = c.savedId ?? opts.newId();
     if (c.live.active) activeSavedTabId = id;
     // A placeholder's own favicon is ours, not the site's: keep the previously saved one.
-    const favIconUrl = c.placeholderSavedId !== null ? c.prev?.favIconUrl : c.live.favIconUrl;
+    // Chrome often reports data: favicons, which the schema rejects: keep only storable ones.
+    const favIconUrl = sanitizeFavIconUrl(
+      c.placeholderSavedId !== null ? c.prev?.favIconUrl : c.live.favIconUrl,
+    );
     const group = c.live.groupId === -1 ? undefined : groups.get(c.live.groupId);
     const tab: SavedTab = { id, url: c.url, title: c.title, index };
     if (favIconUrl) tab.favIconUrl = favIconUrl;

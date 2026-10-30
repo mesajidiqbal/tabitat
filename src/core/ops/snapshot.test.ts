@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseWorkspaceTabs } from "../model/schemas";
 import {
   BASE,
   liveGroup,
@@ -51,6 +52,41 @@ describe("snapshotWindow", () => {
       "https://a.com",
       "edge://settings",
     ]);
+  });
+
+  it("never saves blank / new-tab pages", () => {
+    const win = liveWindow([
+      { url: "about:blank" },
+      { url: "https://a.com", title: "A" },
+      { url: "chrome://newtab/", active: true },
+      { url: "chrome://new-tab-page/" },
+      { url: "edge://newtab/" },
+      { url: "brave://newtab/" },
+    ]);
+    const onEdge = { ...opts(), directSchemes: ["chrome:", "edge:", "brave:", "about:"] };
+    for (const o of [opts(), onEdge]) {
+      const snap = snapshotWindow(win, null, o);
+      expect(snap.tabs.map((t) => t.url)).toEqual(["https://a.com"]);
+      expect(snap).not.toHaveProperty("activeSavedTabId");
+    }
+  });
+
+  it("drops favicons that the schema would reject (e.g. data:)", () => {
+    const win = liveWindow([
+      { url: "https://a.com", favIconUrl: "data:image/png;base64,AAAA" },
+      { url: "https://b.com", favIconUrl: "https://b.com/f.ico" },
+      { url: "https://c.com", favIconUrl: "chrome-extension://id/_favicon/?pageUrl=c" },
+      { url: "https://d.com", favIconUrl: "blob:https://d.com/1" },
+    ]);
+    const snap = snapshotWindow(win, null, opts());
+    expect(snap.tabs.map((t) => t.favIconUrl)).toEqual([
+      undefined,
+      "https://b.com/f.ico",
+      "chrome-extension://id/_favicon/?pageUrl=c",
+      undefined,
+    ]);
+    expect(snap.tabs[0]).not.toHaveProperty("favIconUrl");
+    expect(parseWorkspaceTabs(snap)).toEqual(snap);
   });
 
   it("orders by live index, not array order", () => {
