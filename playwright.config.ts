@@ -6,7 +6,7 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? "github" : "list",
   projects: [
-    { name: "e2e", testDir: "tests/e2e" },
+    { name: "e2e", testDir: "tests/e2e", timeout: 30_000 },
     { name: "spike", testDir: "tests/spike", timeout: 120_000 },
   ],
 });
