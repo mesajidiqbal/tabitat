@@ -22,11 +22,12 @@ describe("classifyUrl", () => {
     ["file:///Users/me/a.pdf", "placeholder"],
     ["ftp://ftp.example.com/x", "placeholder"],
     ["chrome://settings", "direct"],
-    ["edge://flags", "direct"],
-    ["brave://rewards", "direct"],
     ["about:blank", "direct"],
-    ["vivaldi://about", "direct"],
-    ["opera://settings", "direct"],
+    // other browsers' internal pages cannot be created on Chrome (spike S13)
+    ["edge://flags", "skip"],
+    ["brave://rewards", "skip"],
+    ["vivaldi://about", "skip"],
+    ["opera://settings", "skip"],
     ["chrome-extension://abc/page.html", "skip"],
     ["devtools://devtools/bundled/inspector.html", "skip"],
     ["javascript:alert(1)", "skip"],
@@ -41,10 +42,27 @@ describe("classifyUrl", () => {
     expect(classifyUrl(url)).toBe(mode);
   });
 
-  it("isRestorableUrl mirrors classifyUrl", () => {
+  it("directSchemes selects which internal schemes are created directly", () => {
+    const edge = { directSchemes: ["chrome:", "edge:", "about:"] };
+    expect(classifyUrl("edge://flags", edge)).toBe("direct");
+    expect(classifyUrl("chrome://settings", edge)).toBe("direct");
+    expect(classifyUrl("brave://x", edge)).toBe("skip");
+    expect(classifyUrl("https://a.com", edge)).toBe("placeholder");
+    // tolerant of case / missing colon; never makes unknown schemes direct
+    expect(classifyUrl("edge://flags", { directSchemes: ["EDGE"] })).toBe("direct");
+    expect(classifyUrl("chrome://settings", { directSchemes: ["edge:"] })).toBe("skip");
+    expect(classifyUrl("javascript:x", { directSchemes: ["javascript:"] })).toBe("skip");
+    expect(classifyUrl("about:blank", { directSchemes: [] })).toBe("skip");
+  });
+
+  it("isRestorableUrl accepts every known internal scheme, whatever the browser", () => {
     expect(isRestorableUrl("https://a.com")).toBe(true);
     expect(isRestorableUrl("about:blank")).toBe(true);
+    for (const u of ["edge://flags", "brave://x", "vivaldi://x", "opera://x"]) {
+      expect(isRestorableUrl(u)).toBe(true);
+    }
     expect(isRestorableUrl("javascript:void(0)")).toBe(false);
+    expect(isRestorableUrl("chrome-extension://a/b")).toBe(false);
   });
 
   it("schemeOf", () => {

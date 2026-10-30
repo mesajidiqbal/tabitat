@@ -45,6 +45,8 @@ export interface OpeningOptions {
   restoreLimit: number;
   placeholderBase: string;
   chunkSize?: number;
+  /** Internal schemes the running browser can open directly (default chrome:/about:). */
+  directSchemes?: readonly string[];
 }
 
 function cloneTab(t: SavedTab): SavedTab {
@@ -63,7 +65,7 @@ export function planOpening(incoming: readonly SavedTab[], opts: OpeningOptions)
   const restorable: Array<{ tab: SavedTab; mode: "placeholder" | "direct" }> = [];
   const skipped: SavedTab[] = [];
   for (const tab of ordered) {
-    const mode = classifyUrl(tab.url);
+    const mode = classifyUrl(tab.url, { directSchemes: opts.directSchemes });
     if (mode === "skip" || restorable.length >= limit) skipped.push(cloneTab(tab));
     else restorable.push({ tab, mode });
   }
@@ -133,7 +135,9 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
   const { window } = input;
   const nonPinned = window.tabs.filter((t) => !t.pinned).sort((a, b) => a.index - b.index);
   const pinnedCount = window.tabs.length - nonPinned.length;
-  const isRetained = (url: string) => classifyUrl(unwrapUrl(url, input.placeholderBase)) === "skip";
+  const classify = { directSchemes: input.directSchemes };
+  const isRetained = (url: string) =>
+    classifyUrl(unwrapUrl(url, input.placeholderBase), classify) === "skip";
   const outgoing = nonPinned.filter((t) => !isRetained(t.url));
   const retainedTabIds = nonPinned.filter((t) => isRetained(t.url)).map((t) => t.id);
 
@@ -144,6 +148,7 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
           placeholderBase: input.placeholderBase,
           now: input.now,
           newId: input.newId,
+          directSchemes: input.directSchemes,
         });
 
   const incoming = [...input.toTabs.tabs].sort((a, b) => a.index - b.index).map(cloneTab);
@@ -155,6 +160,7 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
     pinnedCount,
     restoreLimit: input.restoreLimit,
     placeholderBase: input.placeholderBase,
+    directSchemes: input.directSchemes,
   });
   const active = opening.chunks.flat().find((s) => s.active);
 

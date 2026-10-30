@@ -42,6 +42,7 @@ function propose(
   workspaces: readonly MatchWorkspace[],
   wsUrlSets: ReadonlyArray<Set<string>>,
   base: string,
+  directSchemes: readonly string[] | undefined,
 ): Proposal {
   const known = new Set(workspaces.map((w) => w.meta.id));
   const urls = new Set<string>();
@@ -52,7 +53,7 @@ function propose(
     const ph = parsePlaceholderUrl(tab.url, base);
     const url = ph?.u ?? tab.url;
     // Same filter as snapshotWindow, so the sets compare like with like.
-    if (classifyUrl(url) !== "skip") urls.add(normalizeForMatch(url));
+    if (classifyUrl(url, { directSchemes }) !== "skip") urls.add(normalizeForMatch(url));
     if (!ph) continue;
     placeholders++;
     if (known.has(ph.w)) hints.set(ph.w, (hints.get(ph.w) ?? 0) + 1);
@@ -94,14 +95,14 @@ function propose(
 export function matchWindows(
   windows: readonly LiveWindow[],
   workspaces: ReadonlyArray<MatchWorkspace>,
-  opts: { placeholderBase: string },
+  opts: { placeholderBase: string; directSchemes?: readonly string[] },
 ): WindowMatch[] {
   const wsUrlSets = workspaces.map(
     (w) => new Set(w.tabs.tabs.map((t) => normalizeForMatch(t.url))),
   );
   const proposals = windows
     .filter((w) => w.tabs.length > 0)
-    .map((w) => propose(w, workspaces, wsUrlSets, opts.placeholderBase));
+    .map((w) => propose(w, workspaces, wsUrlSets, opts.placeholderBase, opts.directSchemes));
 
   const winner = new Map<WorkspaceId, Proposal>();
   for (const p of proposals) {

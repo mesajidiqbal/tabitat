@@ -43,6 +43,16 @@ describe("snapshotWindow", () => {
     });
   });
 
+  it("does not save foreign internal schemes unless the browser can open them", () => {
+    const win = liveWindow([{ url: "https://a.com" }, { url: "edge://settings" }]);
+    expect(snapshotWindow(win, null, opts()).tabs.map((t) => t.url)).toEqual(["https://a.com"]);
+    const onEdge = { ...opts(), directSchemes: ["edge:", "about:"] };
+    expect(snapshotWindow(win, null, onEdge).tabs.map((t) => t.url)).toEqual([
+      "https://a.com",
+      "edge://settings",
+    ]);
+  });
+
   it("orders by live index, not array order", () => {
     const win = liveWindow([]);
     win.tabs = [

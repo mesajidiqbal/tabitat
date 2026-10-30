@@ -61,6 +61,20 @@ describe("matchWindows", () => {
     ]);
   });
 
+  it("only counts internal schemes the browser can open", () => {
+    const E = ws("E", ["edge://a", "edge://b", "https://e.com"]);
+    const win = liveWindow(
+      [{ url: "edge://a" }, { url: "edge://b" }, { url: "https://e.com" }],
+      [],
+      8,
+    );
+    // Chrome default: the edge:// tabs are ignored in the window set -> 1/3 < 0.6
+    expect(matchWindows([win], [E], opts)[0]?.reason).toBe("none");
+    expect(
+      matchWindows([win], [E], { ...opts, directSchemes: ["edge:", "about:"] })[0]?.reason,
+    ).toBe("similarity");
+  });
+
   it("returns none below the threshold", () => {
     const win = liveWindow([{ url: "https://a1.com" }, { url: "https://zz.com" }], [], 3);
     expect(matchWindows([win], [A], opts)[0]?.reason).toBe("none");

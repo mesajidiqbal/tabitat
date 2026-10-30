@@ -277,6 +277,44 @@ describe("planSwitch — retained tabs", () => {
   });
 });
 
+describe("planSwitch — directSchemes", () => {
+  const toTabs = workspaceTabs([
+    savedTab({ id: "e", url: "edge://flags" }),
+    savedTab({ id: "c", url: "chrome://settings" }),
+  ]);
+  const window = liveWindow([
+    { id: 2, url: "https://a.com" },
+    { id: 3, url: "edge://downloads" },
+    { id: 4, url: "chrome://history" },
+  ]);
+
+  it("Chrome default: edge:// is skipped on restore and retained in the window", () => {
+    const plan = planSwitch(input({ toTabs, window }));
+    expect(specs(plan).map((s) => [s.savedTabId, s.mode])).toEqual([["c", "direct"]]);
+    expect(plan.op.skipped.map((t) => t.id)).toEqual(["e"]);
+    expect(plan.op.outgoingTabIds).toEqual([2, 4]);
+    expect(plan.retainedTabIds).toEqual([3]);
+    expect(plan.outgoingSnapshot?.tabs.map((t) => t.url)).toEqual([
+      "https://a.com",
+      "chrome://history",
+    ]);
+  });
+
+  it('["chrome:","edge:","about:"] makes edge:// direct everywhere', () => {
+    const plan = planSwitch(
+      input({ toTabs, window, directSchemes: ["chrome:", "edge:", "about:"] }),
+    );
+    expect(specs(plan).map((s) => [s.savedTabId, s.mode, s.url])).toEqual([
+      ["e", "direct", "edge://flags"],
+      ["c", "direct", "chrome://settings"],
+    ]);
+    expect(plan.op.skipped).toEqual([]);
+    expect(plan.op.outgoingTabIds).toEqual([2, 3, 4]);
+    expect(plan.retainedTabIds).toEqual([]);
+    expect(plan.outgoingSnapshot?.tabs.map((t) => t.url)).toContain("edge://downloads");
+  });
+});
+
 describe("planSwitch — same workspace", () => {
   it("throws PlanError(same_workspace) when from === to", () => {
     expect(() => planSwitch(input({ from: "wsB", to: "wsB" }))).toThrow(PlanError);

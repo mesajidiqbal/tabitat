@@ -10,6 +10,8 @@ export interface SnapshotOptions {
   placeholderBase: string;
   now: number;
   newId: () => string;
+  /** Internal schemes the running browser can open (see classifyUrl); others are not saved. */
+  directSchemes?: readonly string[];
 }
 
 function groupsEqual(a: SavedTabGroup | undefined, b: SavedTabGroup | undefined): boolean {
@@ -123,7 +125,7 @@ export function snapshotWindow(
   for (const t of live) {
     const ph = parsePlaceholderUrl(t.url, opts.placeholderBase);
     const url = ph?.u ?? t.url;
-    if (classifyUrl(url) === "skip") continue;
+    if (classifyUrl(url, { directSchemes: opts.directSchemes }) === "skip") continue;
     cands.push({
       live: t,
       url,

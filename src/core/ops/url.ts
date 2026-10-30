@@ -5,7 +5,11 @@ import type { PlaceholderParams, RestoreMode } from "./types";
 
 /** Schemes restored lazily through the placeholder page. */
 export const PLACEHOLDER_SCHEMES: readonly string[] = ["http:", "https:", "file:", "ftp:"];
-/** Browser-internal schemes that cannot be wrapped and are created directly. */
+/**
+ * Every browser-internal scheme we accept in stored data (data may come from another browser via
+ * import). Which of them can actually be *created* depends on the running browser: see
+ * DEFAULT_DIRECT_SCHEMES / ClassifyOptions.directSchemes.
+ */
 export const DIRECT_SCHEMES: readonly string[] = [
   "chrome:",
   "edge:",
@@ -14,6 +18,17 @@ export const DIRECT_SCHEMES: readonly string[] = [
   "vivaldi:",
   "opera:",
 ];
+/**
+ * Internal schemes the running browser can open directly. Chrome (spike S13): creating an
+ * edge:// or brave:// tab yields an empty tab, so only chrome: and about: by default.
+ */
+export const DEFAULT_DIRECT_SCHEMES: readonly string[] = ["chrome:", "about:"];
+
+export interface ClassifyOptions {
+  /** Internal schemes created directly ("edge:" or "edge"); others classify as "skip". */
+  directSchemes?: readonly string[];
+}
+
 /** Schemes that must never be stored or imported. */
 export const DANGEROUS_SCHEMES: readonly string[] = ["javascript:", "data:", "vbscript:"];
 
@@ -31,18 +46,31 @@ export function schemeOf(url: string): string | null {
   return parseUrl(url)?.protocol.toLowerCase() ?? null;
 }
 
-/** How a saved URL is restored: placeholder (http/https/file/ftp), direct (browser-internal) or skip. */
-export function classifyUrl(url: string): RestoreMode {
+const normalizeScheme = (s: string) => {
+  const l = s.trim().toLowerCase();
+  return l.endsWith(":") ? l : `${l}:`;
+};
+
+/**
+ * How a saved URL is restored in the running browser: "placeholder" (http/https/file/ftp),
+ * "direct" (an internal scheme listed in `opts.directSchemes`, default chrome:/about:) or "skip"
+ * (everything else, including other browsers' internal schemes such as edge: on Chrome).
+ */
+export function classifyUrl(url: string, opts: ClassifyOptions = {}): RestoreMode {
   const scheme = schemeOf(url);
   if (scheme === null) return "skip";
   if (PLACEHOLDER_SCHEMES.includes(scheme)) return "placeholder";
-  if (DIRECT_SCHEMES.includes(scheme)) return "direct";
+  const direct = opts.directSchemes?.map(normalizeScheme) ?? DEFAULT_DIRECT_SCHEMES;
+  if (DIRECT_SCHEMES.includes(scheme) && direct.includes(scheme)) return "direct";
   return "skip";
 }
 
-/** URL policy for stored tabs/links: anything classifyUrl can restore. */
+/**
+ * URL policy for stored tabs/links (schemas): http(s)/file/ftp or ANY known browser-internal
+ * scheme, independent of the running browser.
+ */
 export function isRestorableUrl(url: string): boolean {
-  return classifyUrl(url) !== "skip";
+  return classifyUrl(url, { directSchemes: DIRECT_SCHEMES }) !== "skip";
 }
 
 /** True for javascript:/data:/vbscript: (checked on the raw string, so whitespace/case tricks are caught). */
