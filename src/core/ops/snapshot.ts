@@ -4,6 +4,7 @@
 import type { SavedTab, SavedTabGroup, WorkspaceTabs } from "../model/types";
 import type { LiveGroup, LiveTab, LiveWindow } from "./types";
 import {
+  captureUrl,
   classifyUrl,
   isBlankPageUrl,
   normalizeForMatch,
@@ -18,6 +19,19 @@ export interface SnapshotOptions {
   newId: () => string;
   /** Internal schemes the running browser can open (see classifyUrl); others are not saved. */
   directSchemes?: readonly string[];
+  /** Our extension origin: our own pages are saved (see ClassifyOptions.ownOrigin). */
+  ownOrigin?: string;
+  /**
+   * Drop placeholder tabs whose `w` hint names a workspace other than `activeWorkspaceId`: they
+   * belong to an interrupted switch and must not be absorbed by the active workspace.
+   * `isSavedElsewhere(w, s)` narrows that to placeholders whose saved tab still exists in
+   * workspace `w` (a placeholder the user moved here from another window is kept). Without
+   * it, every foreign placeholder is dropped.
+   */
+  excludeForeignPlaceholders?: {
+    activeWorkspaceId: string;
+    isSavedElsewhere?: (workspaceId: string, savedTabId: string) => boolean;
+  };
 }
 
 function groupsEqual(a: SavedTabGroup | undefined, b: SavedTabGroup | undefined): boolean {
@@ -117,6 +131,12 @@ function mapGroups(
   return out;
 }
 
+export interface SnapshotDetail {
+  snapshot: WorkspaceTabs;
+  /** Live tab id -> SavedTab id, for every tab that is in the snapshot. */
+  savedIdByTabId: Map<number, string>;
+}
+
 /**
  * Snapshot of the window's non-pinned, restorable tabs. Returns `prev` itself (same identity)
  * when nothing but `updatedAt` would change, so callers can skip the storage write.
@@ -126,12 +146,36 @@ export function snapshotWindow(
   prev: WorkspaceTabs | null,
   opts: SnapshotOptions,
 ): WorkspaceTabs {
+  return snapshotWindowDetailed(window, prev, opts).snapshot;
+}
+
+/** snapshotWindow plus which live tab became which SavedTab. */
+export function snapshotWindowDetailed(
+  window: LiveWindow,
+  prev: WorkspaceTabs | null,
+  opts: SnapshotOptions,
+): SnapshotDetail {
   const live = window.tabs.filter((t) => !t.pinned).sort((a, b) => a.index - b.index);
   const cands: Candidate[] = [];
   for (const t of live) {
-    const ph = parsePlaceholderUrl(t.url, opts.placeholderBase);
-    const url = ph?.u ?? t.url;
-    if (classifyUrl(url, { directSchemes: opts.directSchemes }) === "skip") continue;
+    // A blank tab navigating somewhere is saved as its destination (pendingUrl).
+    const raw = captureUrl(t);
+    const ph = parsePlaceholderUrl(raw, opts.placeholderBase);
+    const url = ph?.u ?? raw;
+    const foreign = opts.excludeForeignPlaceholders;
+    if (
+      ph &&
+      foreign &&
+      ph.w !== foreign.activeWorkspaceId &&
+      (foreign.isSavedElsewhere?.(ph.w, ph.s) ?? true)
+    ) {
+      continue;
+    }
+    if (
+      classifyUrl(url, { directSchemes: opts.directSchemes, ownOrigin: opts.ownOrigin }) === "skip"
+    ) {
+      continue;
+    }
     // Blank/new-tab pages carry no content: never saved (planSwitch still closes them).
     if (isBlankPageUrl(url)) continue;
     cands.push({
@@ -152,8 +196,10 @@ export function snapshotWindow(
   );
 
   let activeSavedTabId: string | undefined;
+  const savedIdByTabId = new Map<number, string>();
   const tabs: SavedTab[] = cands.map((c, index) => {
     const id = c.savedId ?? opts.newId();
+    savedIdByTabId.set(c.live.id, id);
     if (c.live.active) activeSavedTabId = id;
     // A placeholder's own favicon is ours, not the site's: keep the previously saved one.
     // Chrome often reports data: favicons, which the schema rejects: keep only storable ones.
@@ -168,9 +214,9 @@ export function snapshotWindow(
   });
 
   if (prev && prev.activeSavedTabId === activeSavedTabId && tabsEqual(prev.tabs, tabs)) {
-    return prev;
+    return { snapshot: prev, savedIdByTabId };
   }
   const out: WorkspaceTabs = { tabs, updatedAt: opts.now, rev: (prev?.rev ?? 0) + 1 };
   if (activeSavedTabId !== undefined) out.activeSavedTabId = activeSavedTabId;
-  return out;
+  return { snapshot: out, savedIdByTabId };
 }

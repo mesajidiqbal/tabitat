@@ -16,12 +16,13 @@ import type {
   SavedLink,
   SavedTab,
   SwitchOp,
+  WindowState,
   WorkspaceId,
   WorkspaceMeta,
   WorkspaceTabs,
 } from "../core/model/types";
 import { Keys } from "../core/model/types";
-import { snapshotWindow } from "../core/ops/snapshot";
+import { snapshotWindow, snapshotWindowDetailed } from "../core/ops/snapshot";
 import {
   BLANK_SAVED_TAB_ID,
   BLANK_TAB_URL,
@@ -32,13 +33,22 @@ import {
   planOpening,
   planSwitch,
 } from "../core/ops/switch-planner";
-import type { OpeningPlan } from "../core/ops/types";
-import { classifyUrl, isRestorableUrl, parsePlaceholderUrl, unwrapUrl } from "../core/ops/url";
+import type { LiveTab, LiveWindow, OpeningPlan } from "../core/ops/types";
+import {
+  captureUrl,
+  classifyUrl,
+  isBlankPageUrl,
+  isRestorableUrl,
+  parsePlaceholderUrl,
+  sanitizeFavIconUrl,
+  unwrapUrl,
+} from "../core/ops/url";
 import { RpcError } from "../messaging/errors";
 import { isNoTabError } from "../platform/errors";
 import type { BgContext } from "./context";
-import { BgKeys, type RecoveryEntry } from "./keys";
+import { BgKeys, type RecoveryEntry, type SwitchClosed } from "./keys";
 import { Lane } from "./lanes";
+import { hasOwnKey, isRecord, ownGet } from "./own";
 import { emptyTabs } from "./repository";
 import { removeTabsSafely } from "./tab-utils";
 
@@ -62,6 +72,13 @@ export interface SwitchResult {
 
 const MAX_RECOVERY_ENTRIES = 20;
 const CLOSED_BY_SWITCH_TTL = 10_000;
+/** How long the durable (storage.session) closed-by-switch record is trusted. */
+const SWITCH_CLOSED_TTL = 5 * 60_000;
+
+/** The op record changed under us (committed, abandoned, or replaced by another op). */
+export class OpSupersededError extends Error {
+  override readonly name = "OpSupersededError";
+}
 
 export const switchLanes = (windowId: number): string[] => [
   Lane.window(windowId),
@@ -84,6 +101,11 @@ export class WorkspaceEngine {
 
   // ------------------------------------------------------------------ locking
 
+  /** A switch is executing in this worker. */
+  hasRunningOps(): boolean {
+    return this.running.size > 0;
+  }
+
   /** In-memory check: a switch is running or the window is being built by open/restore. */
   isBusy(windowId: number): boolean {
     return this.running.has(windowId) || this.locked.has(windowId);
@@ -103,10 +125,53 @@ export class WorkspaceEngine {
     this.locked.delete(windowId);
   }
 
-  /** Whether a tab id was closed by a switch in the last few seconds (not "recently closed"). */
-  wasClosedBySwitch(tabId: number): boolean {
+  /**
+   * Whether a tab removal was caused by a switch (so it is not "recently closed"). Not only
+   * in-memory: the durable storage.session record written before the removals and the op record
+   * itself (outgoing/created tab ids) are consulted, so a worker restart mid-switch does not
+   * misread the switch's closures as the user's.
+   */
+  async wasClosedBySwitch(tabId: number, windowId?: number): Promise<boolean> {
     const at = this.closedBySwitch.get(tabId);
-    return at !== undefined && this.ctx.ports.now() - at < CLOSED_BY_SWITCH_TTL;
+    if (at !== undefined && this.ctx.ports.now() - at < CLOSED_BY_SWITCH_TTL) return true;
+    if (windowId === undefined) return false;
+    const rec = await this.ctx.ports.session
+      .get<SwitchClosed>(BgKeys.switchClosed(windowId))
+      .catch(() => undefined);
+    if (
+      rec &&
+      Array.isArray(rec.ids) &&
+      rec.ids.includes(tabId) &&
+      this.ctx.ports.now() - rec.at < SWITCH_CLOSED_TTL
+    ) {
+      return true;
+    }
+    const op = await this.ctx.repo.getOp(windowId).catch(() => null);
+    return (
+      op !== null &&
+      (op.outgoingTabIds.includes(tabId) || Object.values(op.createdTabIds).includes(tabId))
+    );
+  }
+
+  /** Records (durably, in storage.session) tab ids this switch is about to close. */
+  private async noteClosedBySwitch(windowId: number, ids: readonly number[]): Promise<void> {
+    if (ids.length === 0) return;
+    const now = this.ctx.ports.now();
+    for (const id of ids) this.closedBySwitch.set(id, now);
+    for (const [id, at] of this.closedBySwitch) {
+      if (now - at > CLOSED_BY_SWITCH_TTL) this.closedBySwitch.delete(id);
+    }
+    const key = BgKeys.switchClosed(windowId);
+    try {
+      const prev = await this.ctx.ports.session.get<SwitchClosed>(key);
+      const keep =
+        prev && now - prev.at < SWITCH_CLOSED_TTL && Array.isArray(prev.ids) ? prev.ids : [];
+      await this.ctx.ports.session.set({
+        [key]: { ids: [...new Set([...keep, ...ids])], at: now },
+      });
+    } catch (e) {
+      this.ctx.log.warn("[tabitat] closed-by-switch record", e);
+    }
   }
 
   status(windowId: number): SwitchOp | null {
@@ -176,10 +241,11 @@ export class WorkspaceEngine {
       placeholderBase: this.ctx.placeholderBase,
       newId: ports.newId,
       directSchemes: this.ctx.directSchemes,
+      ownOrigin: this.ctx.ownOrigin,
     });
     const op = plan.op;
     // Intent first: if this write fails nothing has happened.
-    await this.persist(op);
+    await this.writeOp(op, { create: true });
     this.running.set(windowId, op);
     try {
       await this.checkpoint("persisted:snapshot", op);
@@ -194,7 +260,7 @@ export class WorkspaceEngine {
   async resume(op: SwitchOp): Promise<SwitchResult> {
     if (this.running.has(op.windowId)) throw new RpcError("busy", "switch already running");
     op.attempts += 1;
-    await this.persist(op);
+    await this.writeOp(op);
     this.running.set(op.windowId, op);
     try {
       return await this.execute(op, null);
@@ -226,8 +292,20 @@ export class WorkspaceEngine {
     const entries = [...pending.entries.filter((e) => e.opId !== op.id), entry].slice(
       -MAX_RECOVERY_ENTRIES,
     );
-    await repo.setMany({ [BgKeys.recoveryPending]: { entries } });
-    await repo.remove(Keys.opSwitch(op.windowId));
+    const writes: Record<string, unknown> = { [BgKeys.recoveryPending]: { entries } };
+    // The window may hold placeholders of `to` (and, after activating, leftovers of `from`): never
+    // let auto-save absorb a half-switched window into either workspace. It falls back to
+    // Unsorted (the next flush adopts its live tabs); `from`'s snapshot stays as written at the
+    // snapshot stage.
+    const st = await repo.getWindowState(op.windowId);
+    if (st && st.activeWorkspaceId !== null) {
+      writes[Keys.window(op.windowId)] = {
+        activeWorkspaceId: null,
+        sessionEpoch: this.ctx.epoch,
+      } satisfies WindowState;
+    }
+    await repo.setMany(writes);
+    await this.removeOpIf(op);
     this.ctx.log.warn("[tabitat] switch abandoned", op.windowId, reason);
     this.deps.markDirty?.(op.windowId);
   }
@@ -235,8 +313,9 @@ export class WorkspaceEngine {
   /** Resume-or-abandon one persisted op. Caller holds the window lanes (or runs inside init). */
   async resumeOrAbandon(op: SwitchOp): Promise<"resumed" | "abandoned" | "failed"> {
     if (op.sessionEpoch !== this.ctx.epoch) {
-      // Window and tab ids from another browser session mean nothing now (I3).
-      await this.abandon(op, "browser restarted");
+      // The worker context was reset (browser restart, extension reload/update): tab ids may
+      // mean something else now (I3). Abandon: nothing is deleted.
+      await this.abandon(op, "session changed");
       return "abandoned";
     }
     const win = await this.ctx.getWindow(op.windowId);
@@ -263,9 +342,11 @@ export class WorkspaceEngine {
     }
   }
 
-  /** Alarm/retry path: finds op records nobody is running and resumes or abandons them. */
+  /**
+   * Alarm/retry path: rediscovers durable op records (storage.local, not an in-memory flag) that
+   * nobody is running and resumes or abandons them.
+   */
   async resumePending(): Promise<void> {
-    if (!this.mayHavePendingOps) return;
     this.mayHavePendingOps = false;
     const ops = await this.ctx.repo.listOps();
     for (const op of ops) {
@@ -283,7 +364,12 @@ export class WorkspaceEngine {
     }
   }
 
-  /** tabs.onReplaced (discard): rewrite the old id in running and persisted ops (I3). */
+  /**
+   * tabs.onReplaced (discard): rewrite the old id in running and persisted ops (I3).
+   * A running op is patched in memory only: its execution owns the record and persists it at its
+   * next checkpoint. A stalled op (discovered from storage) is patched under its window lane after
+   * re-reading it, so it never races resume or resurrects a committed op.
+   */
   async onTabReplaced(added: number, removed: number): Promise<void> {
     const patch = (op: SwitchOp): boolean => {
       let changed = false;
@@ -292,6 +378,11 @@ export class WorkspaceEngine {
         changed = true;
         return added;
       });
+      const saved = ownGet(op.outgoingSavedIds, removed);
+      if (op.outgoingSavedIds && saved !== undefined) {
+        delete op.outgoingSavedIds[removed];
+        op.outgoingSavedIds[added] = saved;
+      }
       for (const [k, id] of Object.entries(op.createdTabIds)) {
         if (id === removed) {
           op.createdTabIds[k] = added;
@@ -300,13 +391,18 @@ export class WorkspaceEngine {
       }
       return changed;
     };
-    for (const op of this.running.values()) {
-      if (patch(op)) await this.persist(op).catch((e) => this.ctx.log.warn(e));
-    }
-    if (!this.mayHavePendingOps) return;
+    for (const op of this.running.values()) patch(op);
     for (const op of await this.ctx.repo.listOps()) {
       if (this.running.has(op.windowId)) continue;
-      if (patch(op)) await this.persist(op).catch((e) => this.ctx.log.warn(e));
+      if (!patch(structuredClone(op))) continue;
+      await this.ctx.lanes
+        .run([Lane.window(op.windowId)], async () => {
+          if (this.running.has(op.windowId)) return;
+          const fresh = await this.ctx.repo.getOp(op.windowId);
+          if (!fresh || fresh.id !== op.id) return;
+          if (patch(fresh)) await this.writeOp(fresh);
+        })
+        .catch((e) => this.ctx.log.warn("[tabitat] op id patch", e));
     }
   }
 
@@ -319,8 +415,29 @@ export class WorkspaceEngine {
     }, delay);
   }
 
-  private async persist(op: SwitchOp): Promise<void> {
-    await this.ctx.repo.setMany({ [Keys.opSwitch(op.windowId)]: op });
+  /**
+   * The single writer of op records (stage transitions, createdTabIds, blank tab, id patches).
+   * Callers hold the window lane. Re-reads the stored record first: a create must find none, an
+   * update must find the same op (by id) — a committed or abandoned op is never written back.
+   */
+  private async writeOp(op: SwitchOp, opts: { create?: boolean } = {}): Promise<void> {
+    const key = Keys.opSwitch(op.windowId);
+    const stored = await this.ctx.repo.store.get<unknown>(key);
+    if (opts.create) {
+      if (stored !== undefined) throw new RpcError("busy", "a switch is pending in this window");
+    } else if (!isRecord(stored) || stored.id !== op.id) {
+      throw new OpSupersededError(`op ${op.id} for window ${op.windowId} is no longer current`);
+    }
+    await this.ctx.repo.setMany({ [key]: op });
+  }
+
+  /** Removes the op record if it is still this op. */
+  private async removeOpIf(op: SwitchOp, extra: string[] = []): Promise<void> {
+    const key = Keys.opSwitch(op.windowId);
+    const stored = await this.ctx.repo.store.get<unknown>(key);
+    const mine = isRecord(stored) && stored.id === op.id;
+    const keys = mine ? [key, ...extra] : extra;
+    if (keys.length > 0) await this.ctx.repo.remove(keys);
   }
 
   private async checkpoint(point: string, op: SwitchOp): Promise<void> {
@@ -332,8 +449,9 @@ export class WorkspaceEngine {
     first: { snapshot: WorkspaceTabs | null; opening: OpeningPlan } | null,
   ): Promise<SwitchResult> {
     for (;;) {
+      const stage = op.stage;
       try {
-        switch (op.stage) {
+        switch (stage) {
           case "snapshot":
             await this.stageSnapshot(op, first ? first.snapshot : undefined);
             break;
@@ -349,20 +467,23 @@ export class WorkspaceEngine {
           case "done":
             return await this.stageDone(op);
         }
+        // The transition write is part of the stage: if it fails, the op stays at `stage`
+        // (stages are idempotent) and is retried like any other stage failure.
+        op.stage = nextStage(op);
+        await this.writeOp(op);
       } catch (e) {
-        if (op.stage === "snapshot") {
+        op.stage = stage;
+        if (stage === "snapshot" && !(e instanceof OpSupersededError)) {
           // Nothing has been touched yet (I2): roll the intent back so the user can retry.
-          await this.ctx.repo.remove(Keys.opSwitch(op.windowId)).catch(() => {
+          await this.removeOpIf(op).catch(() => {
             this.mayHavePendingOps = true;
           });
-        } else {
+        } else if (!(e instanceof OpSupersededError)) {
           this.mayHavePendingOps = true;
           this.scheduleRetry();
         }
         throw e;
       }
-      op.stage = nextStage(op);
-      await this.persist(op);
       await this.checkpoint(`persisted:${op.stage}`, op);
     }
   }
@@ -383,14 +504,24 @@ export class WorkspaceEngine {
     const created = new Set(Object.values(op.createdTabIds));
     const tabs = win.tabs.filter((t) => !created.has(t.id));
     const prev = await this.ctx.repo.getWorkspaceTabs(op.from);
-    const snap = snapshotWindow({ ...win, tabs }, prev, this.ctx.snapshotOptions());
-    const classify = { directSchemes: this.ctx.directSchemes };
+    const { snapshot: snap, savedIdByTabId } = snapshotWindowDetailed(
+      { ...win, tabs },
+      prev,
+      this.ctx.snapshotOptions(),
+    );
+    const classify = this.ctx.classifyOptions();
     op.outgoingTabIds = tabs
-      .filter(
-        (t) =>
-          !t.pinned && classifyUrl(unwrapUrl(t.url, this.ctx.placeholderBase), classify) !== "skip",
-      )
+      .filter((t) => {
+        if (t.pinned) return false;
+        const real = unwrapUrl(captureUrl(t), this.ctx.placeholderBase);
+        return isBlankPageUrl(real) || classifyUrl(real, classify) !== "skip";
+      })
       .map((t) => t.id);
+    op.outgoingSavedIds = {};
+    for (const id of op.outgoingTabIds) {
+      const sid = savedIdByTabId.get(id);
+      if (sid !== undefined) op.outgoingSavedIds[id] = sid;
+    }
     if (snap !== prev) await this.ctx.repo.setMany({ [Keys.wsTabs(op.from)]: snap });
   }
 
@@ -402,6 +533,7 @@ export class WorkspaceEngine {
     for (const [sid, tid] of Object.entries(op.createdTabIds)) {
       if (!live.has(tid)) delete op.createdTabIds[sid];
     }
+    // A worker that died right after tabs.create returned browser-side never recorded the tab:
     // Adopt placeholders created before a crash but not yet recorded (no duplicates on resume).
     const outgoing = new Set(op.outgoingTabIds);
     const recorded = new Set(Object.values(op.createdTabIds));
@@ -409,7 +541,9 @@ export class WorkspaceEngine {
     for (const t of win.tabs) {
       if (outgoing.has(t.id) || recorded.has(t.id)) continue;
       const ph = parsePlaceholderUrl(t.url, this.ctx.placeholderBase);
-      if (!ph || ph.w !== op.to || !incomingIds.has(ph.s) || ph.s in op.createdTabIds) continue;
+      if (!ph || ph.w !== op.to || !incomingIds.has(ph.s) || hasOwnKey(op.createdTabIds, ph.s)) {
+        continue;
+      }
       op.createdTabIds[ph.s] = t.id;
       recorded.add(t.id);
     }
@@ -423,6 +557,7 @@ export class WorkspaceEngine {
         restoreLimit: Number.MAX_SAFE_INTEGER,
         placeholderBase: this.ctx.placeholderBase,
         directSchemes: this.ctx.directSchemes,
+        ownOrigin: this.ctx.ownOrigin,
       };
       if (op.activeSavedTabId !== undefined) openingOpts.activeSavedTabId = op.activeSavedTabId;
       plan = planOpening(
@@ -436,7 +571,7 @@ export class WorkspaceEngine {
       let progressed = false;
       try {
         for (const spec of chunk) {
-          if (spec.savedTabId in op.createdTabIds) continue;
+          if (hasOwnKey(op.createdTabIds, spec.savedTabId)) continue;
           const tab = await ports.tabs.create({
             windowId: op.windowId,
             url: spec.url,
@@ -449,16 +584,16 @@ export class WorkspaceEngine {
         }
       } catch (e) {
         // Record what was created so a resume does not create it twice.
-        if (progressed) await this.persist(op).catch((err) => this.ctx.log.warn(err));
+        if (progressed) await this.writeOp(op).catch((err) => this.ctx.log.warn(err));
         throw e;
       }
-      if (progressed) await this.persist(op);
+      if (progressed) await this.writeOp(op);
       await this.checkpoint(`chunk:${i}`, op);
     }
 
     for (const g of plan.groups) {
       const ids = g.savedTabIds
-        .map((s) => op.createdTabIds[s])
+        .map((s) => ownGet(op.createdTabIds, s))
         .filter((id): id is number => id !== undefined);
       if (ids.length === 0) continue;
       const groupId = await ports.tabs.group(ids, op.windowId);
@@ -473,11 +608,13 @@ export class WorkspaceEngine {
   /** Activates the saved active tab (never waits for it to load: spike finding 4). */
   private async stageActivating(op: SwitchOp): Promise<void> {
     const created = op.createdTabIds;
-    const firstIncoming = op.incoming.map((t) => created[t.id]).find((id) => id !== undefined);
+    const firstIncoming = op.incoming
+      .map((t) => ownGet(created, t.id))
+      .find((id) => id !== undefined);
     const target =
-      (op.activeSavedTabId !== undefined ? created[op.activeSavedTabId] : undefined) ??
+      (op.activeSavedTabId !== undefined ? ownGet(created, op.activeSavedTabId) : undefined) ??
       firstIncoming ??
-      created[BLANK_SAVED_TAB_ID];
+      ownGet(created, BLANK_SAVED_TAB_ID);
     if (target !== undefined) {
       try {
         await this.ctx.ports.tabs.update(target, { active: true });
@@ -485,12 +622,21 @@ export class WorkspaceEngine {
         if (!isNoTabError(e)) throw e;
       }
     }
+    // A user-initiated switch ends a provisional (reconciled) association: fresh record.
     await this.ctx.repo.setMany({
-      [Keys.window(op.windowId)]: { activeWorkspaceId: op.to, sessionEpoch: this.ctx.epoch },
+      [Keys.window(op.windowId)]: {
+        activeWorkspaceId: op.to,
+        sessionEpoch: this.ctx.epoch,
+      } satisfies WindowState,
     });
   }
 
-  /** Removes the outgoing tabs one id at a time (spike S7). Pinned/retained tabs are never listed. */
+  /**
+   * Removes the outgoing tabs one id at a time (spike S7). Pinned/retained tabs are never listed.
+   * Each tab is revalidated right before its removal (review bug 1): a tab that is gone, now
+   * pinned, moved to another window, or now unrestorable is retained (left open); a tab whose
+   * content differs from its saved entry is written to `ws:tabs:<from>` first (same SavedTab id).
+   */
   private async stageClosing(op: SwitchOp): Promise<void> {
     if (op.outgoingTabIds.length === 0) return;
     const { ports } = this.ctx;
@@ -505,21 +651,120 @@ export class WorkspaceEngine {
         active: true,
       });
       op.createdTabIds[BLANK_SAVED_TAB_ID] = blank.id;
-      await this.persist(op);
+      await this.writeOp(op);
     }
-    const now = ports.now();
-    for (const id of op.outgoingTabIds) this.closedBySwitch.set(id, now);
-    for (const [id, at] of this.closedBySwitch) {
-      if (now - at > CLOSED_BY_SWITCH_TTL) this.closedBySwitch.delete(id);
+    for (const id of op.outgoingTabIds) {
+      const tab = await ports.tabs.get(id);
+      if (!tab) continue; // already gone (or unknown): nothing to close
+      if (!(await this.saveBeforeClose(op, tab))) continue; // retained
+      // Durable "closed by this switch" mark first (a worker restart must not misread it).
+      await this.noteClosedBySwitch(op.windowId, [id]);
+      await removeTabsSafely(ports.tabs, [id]);
     }
-    await removeTabsSafely(ports.tabs, op.outgoingTabIds);
+  }
+
+  /**
+   * Revalidates one outgoing tab. Returns true when it may be closed (its current content is
+   * durably saved in `from`, or it is blank); false to retain it.
+   */
+  private async saveBeforeClose(op: SwitchOp, tab: LiveTab): Promise<boolean> {
+    const { repo, ports } = this.ctx;
+    if (tab.windowId !== op.windowId || tab.pinned) return false;
+    const raw = captureUrl(tab);
+    const ph = parsePlaceholderUrl(raw, this.ctx.placeholderBase);
+    const url = ph?.u ?? raw;
+    if (url.trim() === "" || isBlankPageUrl(url)) return true;
+    if (classifyUrl(url, this.ctx.classifyOptions()) === "skip") return false;
+    if (op.from === null) return false; // nowhere to save it
+    const title = ph ? ph.t || tab.title : tab.title;
+    const cur = (await repo.getWorkspaceTabs(op.from)) ?? emptyTabs(ports.now());
+    const savedId = ownGet(op.outgoingSavedIds, tab.id);
+    const entry =
+      savedId !== undefined
+        ? cur.tabs.find((t) => t.id === savedId)
+        : op.outgoingSavedIds === undefined
+          ? cur.tabs.find((t) => t.url === url) // op written before outgoingSavedIds existed
+          : undefined;
+    if (entry && entry.url === url && entry.title === title) return true;
+    const favIconUrl = ph ? entry?.favIconUrl : sanitizeFavIconUrl(tab.favIconUrl);
+    let tabs: SavedTab[];
+    if (entry) {
+      tabs = cur.tabs.map((t) => {
+        if (t.id !== entry.id) return t;
+        const next: SavedTab = { ...t, url, title };
+        if (favIconUrl) next.favIconUrl = favIconUrl;
+        else delete next.favIconUrl;
+        return next;
+      });
+    } else {
+      const index = cur.tabs.reduce((m, t) => Math.max(m, t.index + 1), 0);
+      const added: SavedTab = { id: ports.newId(), url, title, index };
+      if (favIconUrl) added.favIconUrl = favIconUrl;
+      tabs = [...cur.tabs, added];
+    }
+    await repo.setMany({
+      [Keys.wsTabs(op.from)]: {
+        ...cur,
+        tabs,
+        updatedAt: ports.now(),
+        rev: cur.rev + 1,
+      } satisfies WorkspaceTabs,
+    });
+    return true;
+  }
+
+  /**
+   * After a resumed op: closes duplicates a lost `tabs.create` result produced. Placeholders of
+   * `to` sharing an `s` hint keep the recorded (or first) one; an unrecorded tab whose URL equals
+   * a recorded directly-created tab's URL is the duplicate of a create whose result was lost.
+   * Outgoing (possibly retained) and pinned tabs are never touched.
+   */
+  private async dedupeAfterResume(op: SwitchOp, win: LiveWindow): Promise<boolean> {
+    const base = this.ctx.placeholderBase;
+    const recorded = new Map<number, string>();
+    for (const [sid, tid] of Object.entries(op.createdTabIds)) recorded.set(tid, sid);
+    const outgoing = new Set(op.outgoingTabIds);
+    const candidates = win.tabs.filter((t) => !t.pinned && !outgoing.has(t.id));
+    const close: number[] = [];
+    const bySaved = new Map<string, number[]>();
+    for (const t of candidates) {
+      const ph = parsePlaceholderUrl(t.url, base);
+      if (!ph || ph.w !== op.to) continue;
+      const list = bySaved.get(ph.s);
+      if (list) list.push(t.id);
+      else bySaved.set(ph.s, [t.id]);
+    }
+    for (const [sid, ids] of bySaved) {
+      if (ids.length < 2) continue;
+      const rec = ownGet(op.createdTabIds, sid);
+      const keep = rec !== undefined && ids.includes(rec) ? rec : (ids[0] as number);
+      close.push(...ids.filter((id) => id !== keep));
+    }
+    const directUrls = new Map<string, number>();
+    for (const t of candidates) {
+      const sid = recorded.get(t.id);
+      if (sid === undefined || parsePlaceholderUrl(t.url, base)) continue;
+      directUrls.set(t.url, t.id);
+    }
+    for (const t of candidates) {
+      if (recorded.has(t.id) || close.includes(t.id)) continue;
+      const keep = directUrls.get(t.url);
+      if (keep !== undefined && keep !== t.id) close.push(t.id);
+    }
+    if (close.length === 0) return false;
+    await this.noteClosedBySwitch(op.windowId, close);
+    await removeTabsSafely(this.ctx.ports.tabs, close);
+    return true;
   }
 
   /** Full re-snapshot into ws:tabs:<to>, skipped tabs kept as saved links, then commit (delete op). */
   private async stageDone(op: SwitchOp): Promise<SwitchResult> {
     const { repo, ports } = this.ctx;
     const writes: Record<string, unknown> = {};
-    const win = await this.ctx.getWindow(op.windowId);
+    let win = await this.ctx.getWindow(op.windowId);
+    if (win && op.attempts > 0 && (await this.dedupeAfterResume(op, win))) {
+      win = await this.ctx.getWindow(op.windowId);
+    }
     if (win) {
       const prev = await repo.getWorkspaceTabs(op.to);
       const snap = snapshotWindow(win, prev, this.ctx.snapshotOptions());
@@ -556,7 +801,7 @@ export class WorkspaceEngine {
       }
     }
     if (Object.keys(writes).length > 0) await repo.setMany(writes);
-    await repo.remove([Keys.opSwitch(op.windowId), Keys.dirty(op.windowId)]);
+    await this.removeOpIf(op, [Keys.dirty(op.windowId)]);
     if (this.deps.refreshBadge) {
       await this.deps.refreshBadge(op.windowId).catch((e) => this.ctx.log.warn(e));
     }
@@ -565,12 +810,25 @@ export class WorkspaceEngine {
 
   // ------------------------------------------------------------------ other workspace ops
 
-  /** Window id whose windows:* record has `id` active (and still exists), else null. */
-  async ownerOf(id: WorkspaceId): Promise<number | null> {
+  /**
+   * windows:* records that describe a live window of this session: the window id is in
+   * windows.getAll() and the record carries the current epoch (a record from a previous browser
+   * session may name a window id that was reused).
+   */
+  async liveWindowStates(): Promise<Map<number, WindowState>> {
     const states = await this.ctx.repo.listWindowStates();
+    const live = new Set((await this.ctx.ports.windows.getAll()).map((w) => w.id));
+    const out = new Map<number, WindowState>();
     for (const [windowId, st] of states) {
-      if (st.activeWorkspaceId !== id) continue;
-      if (await this.ctx.getWindow(windowId)) return windowId;
+      if (live.has(windowId) && st.sessionEpoch === this.ctx.epoch) out.set(windowId, st);
+    }
+    return out;
+  }
+
+  /** Live window (see liveWindowStates) whose record has `id` active, else null. */
+  async ownerOf(id: WorkspaceId): Promise<number | null> {
+    for (const [windowId, st] of await this.liveWindowStates()) {
+      if (st.activeWorkspaceId === id) return windowId;
     }
     return null;
   }
@@ -688,7 +946,7 @@ export class WorkspaceEngine {
   /** Switches to the next/previous named workspace not open in another window. */
   async nextWorkspace(windowId: number, dir: 1 | -1): Promise<{ workspaceId: WorkspaceId | null }> {
     const { repo } = this.ctx;
-    const states = await repo.listWindowStates();
+    const states = await this.liveWindowStates();
     const current = states.get(windowId)?.activeWorkspaceId ?? null;
     const elsewhere = new Set<string>();
     for (const [w, st] of states) {

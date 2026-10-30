@@ -3,7 +3,7 @@ import { SchemaError } from "../model/schemas";
 import type { BackupFile, SavedLink } from "../model/types";
 import { DEFAULT_SETTINGS } from "../model/types";
 import { NOW, savedTab, seqIds, workspaceMeta, workspaceTabs } from "../testing/fixtures";
-import { buildBackup, planImport, validateBackup } from "./index";
+import { buildBackup, checkBackupLimits, IMPORT_LIMITS, planImport, validateBackup } from "./index";
 
 const link: SavedLink = { id: "l", url: "https://l.com", title: "L", order: 0, addedAt: NOW };
 
@@ -113,6 +113,44 @@ describe("validateBackup", () => {
       expect((e as SchemaError).path).toBe("data.workspaces.0.tabs.tabs.0.url");
     }
     expect(() => validateBackup({})).toThrow(SchemaError);
+  });
+
+  it("rejects duplicate saved-tab ids and ids outside the id pattern (bug 6)", () => {
+    const file = buildBackup(storage(), NOW) as BackupFile;
+    const dup = structuredClone(file);
+    const ws0 = dup.data.workspaces[0];
+    if (!ws0) throw new Error("fixture");
+    ws0.tabs.tabs.push({ ...savedTab({ id: "a1" }), url: "https://second.example/", index: 1 });
+    expect(() => validateBackup(dup)).toThrow(/unique/);
+    const proto = structuredClone(file);
+    (proto.data.workspaces[0]?.tabs.tabs[0] as { id: string }).id = "__proto__";
+    expect(() => validateBackup(proto)).toThrow(SchemaError);
+    const spaced = structuredClone(file);
+    (spaced.data.workspaces[0]?.meta as { id: string }).id = "a b";
+    expect(() => validateBackup(spaced)).toThrow(SchemaError);
+  });
+
+  it("drops disallowed favicons instead of rejecting the file", () => {
+    const file = buildBackup(storage(), NOW) as BackupFile;
+    const t0 = file.data.workspaces[0]?.tabs.tabs[0];
+    if (t0) t0.favIconUrl = "blob:https://a/x";
+    const out = validateBackup(file);
+    expect(out.data.workspaces[0]?.tabs.tabs[0]?.favIconUrl).toBeUndefined();
+  });
+});
+
+describe("checkBackupLimits", () => {
+  const ws = (tabs: number) => ({ tabs: { tabs: Array.from({ length: tabs }, () => ({})) } });
+  it("accepts files within bounds", () => {
+    expect(checkBackupLimits({ data: { workspaces: [ws(3)] } }, 10)).toBeNull();
+    expect(checkBackupLimits("garbage", 10)).toBeNull();
+  });
+  it("rejects size, workspace count and tab count over the limits", () => {
+    expect(checkBackupLimits({}, IMPORT_LIMITS.maxBytes + 1)).toMatch(/MB/);
+    const many = { data: { workspaces: Array.from({ length: 1001 }, () => ws(0)) } };
+    expect(checkBackupLimits(many, 10)).toMatch(/workspaces/);
+    const big = { data: { workspaces: [ws(15_000), ws(5_001)] } };
+    expect(checkBackupLimits(big, 10)).toMatch(/tabs/);
   });
 });
 

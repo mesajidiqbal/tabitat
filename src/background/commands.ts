@@ -12,7 +12,7 @@ const WINDOW_ID_CURRENT = -2;
 export interface ShortcutDeps {
   shell: ShellPort;
   dispatch(msg: unknown): Promise<Envelope<unknown>>;
-  ready(): Promise<void>;
+  ready(): Promise<unknown>;
   newId(): string;
   log: { warn(...a: unknown[]): void };
 }

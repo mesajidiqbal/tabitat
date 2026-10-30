@@ -29,6 +29,32 @@ describe("matchWindows", () => {
     ]);
   });
 
+  it("a hint needs a majority of all non-pinned, non-blank tabs (one stale placeholder loses)", () => {
+    const stale = liveWindow(
+      [
+        { url: ph("B") },
+        { url: "https://u1.com" },
+        { url: "https://u2.com" },
+        { url: "about:blank" },
+        { url: "https://p.com", pinned: true },
+      ],
+      [],
+      3,
+    );
+    expect(matchWindows([stale], [A, B], opts)[0]?.reason).toBe("none");
+    // tie (1 of 2 counted tabs) -> similarity decides, not the hint
+    const tie = liveWindow([{ url: ph("B", "https://a1.com") }, { url: "https://a2.com" }], [], 4);
+    const res = matchWindows([tie], [A, B], opts)[0];
+    expect(res?.reason).not.toBe("hint");
+    // blank tabs do not count against the hint
+    const blanks = liveWindow([{ url: ph("B") }, { url: "about:blank" }, { url: "" }], [], 5);
+    expect(matchWindows([blanks], [A, B], opts)[0]).toEqual({
+      windowId: 5,
+      workspaceId: "B",
+      reason: "hint",
+    });
+  });
+
   it("ignores hints without a majority or for unknown workspaces", () => {
     const split = liveWindow(
       [{ url: ph("A") }, { url: ph("B") }, { url: ph("ghost") }, { url: ph("ghost") }],

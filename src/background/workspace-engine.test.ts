@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { SwitchOp, WindowState, WorkspaceMeta, WorkspaceTabs } from "../core/model/types";
+import type {
+  ClosedTab,
+  SwitchOp,
+  WindowState,
+  WorkspaceMeta,
+  WorkspaceTabs,
+} from "../core/model/types";
 import { Keys } from "../core/model/types";
 import type { RecoveryPending } from "./keys";
 import type { ServiceOptions } from "./services";
@@ -390,11 +396,11 @@ describe("WorkspaceEngine — failure injection", () => {
     await settle(10);
     const tabCount = h.fake.tabsOf(h.windowId).length;
     await h.restart({ browser: true, services: { hooks: {} } });
-    expect(h.svc.initReport?.browserStarted).toBe(true);
+    expect(h.svc.initReport?.contextReset).toBe(true);
     expect(h.svc.initReport?.ops[0]?.result).toBe("abandoned");
     const rec = stored<RecoveryPending>(h.fake, "recovery:pending");
     expect(rec?.entries).toHaveLength(1);
-    expect(rec?.entries[0]?.reason).toBe("browser restarted");
+    expect(rec?.entries[0]?.reason).toBe("session changed");
     expect(rec?.entries[0]?.incoming.map((t) => t.url)).toEqual(bUrls(4));
     expect(rec?.entries[0]?.fromSnapshot?.tabs.map((t) => t.url)).toEqual(A_URLS);
     // nothing deleted: both workspaces intact, every tab still open
@@ -564,5 +570,251 @@ describe("WorkspaceEngine — other operations", () => {
     await h.ok("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
     expect(seen).toMatchObject({ to: "B", stage: "opening" });
     expect(await h.ok("op.status", { windowId: h.windowId })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- review fixes (A, B, E, G, J, L, M, N, P)
+
+const opOf = (h: Harness, w: number) => stored<SwitchOp>(h.fake, Keys.opSwitch(w));
+
+describe("WorkspaceEngine — closing revalidates outgoing tabs (A)", () => {
+  it("a tab navigated during a stalled closing is saved (same SavedTab id) before it closes", async () => {
+    const h = await world(3);
+    const before = stored<WorkspaceTabs>(h.fake, Keys.wsTabs(h.aId));
+    h.fake.failNext("tabs.remove");
+    expect((await h.rpc("workspace.switch", { windowId: h.windowId, workspaceId: "B" })).ok).toBe(
+      false,
+    );
+    const op = opOf(h, h.windowId);
+    expect(op?.stage).toBe("closing");
+    expect(Object.keys(op?.outgoingSavedIds ?? {})).toHaveLength(3);
+    const moved = op?.outgoingTabIds[1] as number;
+    h.fake.navigate(moved, "https://a.example/changed", "Changed");
+    await settle();
+    await h.restart();
+    const after = stored<WorkspaceTabs>(h.fake, Keys.wsTabs(h.aId));
+    expect(after?.tabs.map((t) => t.url)).toEqual([
+      "https://a.example/1",
+      "https://a.example/changed",
+      "https://a.example/3",
+    ]);
+    expect(after?.tabs.map((t) => t.id)).toEqual(before?.tabs.map((t) => t.id));
+    expect(after?.tabs[1]?.title).toBe("Changed");
+    expect(h.fake.hasTab(moved)).toBe(false);
+    expect(unwrappedUrls(h.fake, h.windowId, h.placeholderBase)).toEqual(bUrls(3));
+  });
+
+  it("tabs pinned or moved to another window during a stalled closing are retained", async () => {
+    const h = await world(3);
+    const other = h.fake.addWindow(["https://elsewhere.example/"]);
+    h.fake.failNext("tabs.remove");
+    await h.rpc("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    const [t0, t1, t2] = (opOf(h, h.windowId)?.outgoingTabIds ?? []) as [number, number, number];
+    h.fake.moveTab(t0, other);
+    h.fake.setPinned(t1, true);
+    await settle();
+    await h.restart();
+    expect(opOf(h, h.windowId)).toBeUndefined();
+    expect(h.fake.tab(t0)?.windowId).toBe(other);
+    expect(h.fake.tab(t1)?.pinned).toBe(true);
+    expect(h.fake.hasTab(t2)).toBe(false);
+  });
+
+  it("a blank outgoing tab that got content is appended to the outgoing workspace", async () => {
+    const h = await setup({
+      windows: [["https://a.example/1", "about:blank"]],
+      before: (fake) => seedWorkspace(fake, "B", ["https://b.example/"]),
+      services: { debounceMs: 60_000 },
+    });
+    const w = h.fake.windowIds()[0] as number;
+    const a = await h.ok("workspace.create", { name: "A", color: "red", fromWindowId: w });
+    h.fake.failNext("tabs.remove");
+    await h.rpc("workspace.switch", { windowId: w, workspaceId: "B" });
+    const blank = opOf(h, w)?.outgoingTabIds[1] as number;
+    h.fake.navigate(blank, "https://late.example/");
+    await settle();
+    await h.restart();
+    expect(stored<WorkspaceTabs>(h.fake, Keys.wsTabs(a.id))?.tabs.map((t) => t.url)).toEqual([
+      "https://a.example/1",
+      "https://late.example/",
+    ]);
+  });
+});
+
+describe("WorkspaceEngine — pending navigations, ids, own pages (B, E, P)", () => {
+  it("a blank tab with a pending navigation is saved as its destination, not discarded", async () => {
+    const h = await setup({
+      windows: [["https://a.example/1", "about:blank"]],
+      before: (fake) => seedWorkspace(fake, "B", ["https://b.example/"]),
+      services: { debounceMs: 60_000 },
+    });
+    const w = h.fake.windowIds()[0] as number;
+    const a = await h.ok("workspace.create", { name: "A", color: "red", fromWindowId: w });
+    const blank = h.fake.tabsOf(w)[1]?.id as number;
+    h.fake.navigate(blank, "https://slow.example/article", { commit: false });
+    await h.ok("workspace.switch", { windowId: w, workspaceId: "B" });
+    expect(stored<WorkspaceTabs>(h.fake, Keys.wsTabs(a.id))?.tabs.map((t) => t.url)).toEqual([
+      "https://a.example/1",
+      "https://slow.example/article",
+    ]);
+  });
+
+  it("saved-tab ids like 'constructor' are restored (no prototype lookups)", async () => {
+    const h = await setup({
+      windows: [["https://x.example/"]],
+      before: (fake) =>
+        seedWorkspace(fake, "B", [
+          { id: "constructor", url: "https://b.example/0" },
+          { id: "toString", url: "https://b.example/1" },
+        ]),
+      services: { debounceMs: 60_000 },
+    });
+    const w = h.fake.windowIds()[0] as number;
+    await h.ok("workspace.switch", { windowId: w, workspaceId: "B" });
+    expect(placeholderIds(h.fake, w, h.placeholderBase)).toEqual(["constructor", "toString"]);
+  });
+
+  it("our own extension pages are saved and restored, not retained", async () => {
+    const own = "chrome-extension://fakeextensionid/";
+    const h = await setup({
+      windows: [["https://a.example/", `${own}dashboard.html`]],
+      before: (fake) => seedWorkspace(fake, "B", ["https://b.example/"]),
+      services: { debounceMs: 60_000 },
+    });
+    const w = h.fake.windowIds()[0] as number;
+    const a = await h.ok("workspace.create", { name: "A", color: "red", fromWindowId: w });
+    await h.ok("workspace.switch", { windowId: w, workspaceId: "B" });
+    expect(stored<WorkspaceTabs>(h.fake, Keys.wsTabs(a.id))?.tabs.map((t) => t.url)).toEqual([
+      "https://a.example/",
+      `${own}dashboard.html`,
+    ]);
+    expect(h.fake.urlsOf(w).some((u) => u.endsWith("dashboard.html"))).toBe(false);
+    await h.ok("workspace.switch", { windowId: w, workspaceId: a.id });
+    expect(h.fake.urlsOf(w)).toContain(`${own}dashboard.html`);
+  });
+});
+
+describe("WorkspaceEngine — lost results after a worker death (J)", () => {
+  it("tabs.create done browser-side, result lost: resume adopts the placeholder (no duplicate)", async () => {
+    const h = await world(3);
+    h.fake.failAfterEffect("tabs.create", {
+      when: (spec) => (spec as { url: string }).url.includes("s=B-t1"),
+    });
+    void h.rpc("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    await settle(10);
+    expect(opOf(h, h.windowId)?.stage).toBe("opening");
+    await h.restart();
+    expectSwitched(h, 3);
+  });
+
+  it("a lost direct-created tab is duplicated once, then closed by the post-resume dedupe", async () => {
+    const urls = ["https://b.example/0", "chrome://settings/", "https://b.example/2"];
+    const h = await setup({
+      windows: [[...A_URLS]],
+      before: (fake) => seedWorkspace(fake, "B", urls),
+      services: { debounceMs: 60_000 },
+    });
+    const w = h.fake.windowIds()[0] as number;
+    await h.ok("workspace.create", { name: "A", color: "red", fromWindowId: w });
+    h.fake.failAfterEffect("tabs.create", {
+      when: (spec) => (spec as { url: string }).url === "chrome://settings/",
+    });
+    void h.rpc("workspace.switch", { windowId: w, workspaceId: "B" });
+    await settle(10);
+    await h.restart();
+    expect(unwrappedUrls(h.fake, w, h.placeholderBase)).toEqual(urls);
+    expect(stored(h.fake, Keys.opSwitch(w))).toBeUndefined();
+    expect(stored<ClosedTab[]>(h.fake, Keys.recentlyClosed) ?? []).toEqual([]);
+  });
+});
+
+describe("WorkspaceEngine — journal serialization (G)", () => {
+  it("a failed stage-transition write keeps the op at its stage; the alarm rediscovers it", async () => {
+    const h = await world(3);
+    h.fake.failNext("storage.set", {
+      when: (items) => {
+        const op = (items as Record<string, SwitchOp>)[Keys.opSwitch(h.windowId)];
+        return op?.stage === "activating";
+      },
+    });
+    expect((await h.rpc("workspace.switch", { windowId: h.windowId, workspaceId: "B" })).ok).toBe(
+      false,
+    );
+    expect(opOf(h, h.windowId)?.stage).toBe("opening");
+    h.svc.engine.mayHavePendingOps = false; // a fresh worker would not have the flag either
+    h.fake.fireAlarm("flush-dirty");
+    await settle(20);
+    expectSwitched(h, 3);
+  });
+
+  it("a stalled op's id patch is laned and re-read; a committed op is never resurrected", async () => {
+    const h = await world(3);
+    h.fake.failNext("tabs.create");
+    await h.rpc("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    const old = opOf(h, h.windowId)?.outgoingTabIds[1] as number;
+    await h.fake.ports().tabs.discard(old);
+    await settle(10);
+    const patched = opOf(h, h.windowId);
+    expect(patched?.outgoingTabIds).not.toContain(old);
+    expect(patched?.outgoingSavedIds?.[patched.outgoingTabIds[1] as number]).toBeDefined();
+    await h.svc.engine.resumePending();
+    expectSwitched(h, 3);
+    // a late replacement for a committed op writes nothing
+    await h.svc.engine.onTabReplaced(77_777, patched?.outgoingTabIds[1] as number);
+    expect(opOf(h, h.windowId)).toBeUndefined();
+  });
+});
+
+describe("WorkspaceEngine — abandon, ownership, closed-by-switch (L, M, N)", () => {
+  it("abandon detaches the window: `to` placeholders never contaminate `from` (L)", async () => {
+    let fired = false;
+    const h = await world(3, {
+      hooks: {
+        checkpoint: (p, op) => {
+          if (p === "persisted:activating" && !fired) {
+            fired = true;
+            h.fake.killWorker();
+            h.fake.closeTab(op.outgoingTabIds[0] as number); // makes canResume abandon
+          }
+        },
+      },
+    });
+    void h.rpc("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    await settle(10);
+    await h.restart({ services: { hooks: {} } });
+    expect(h.svc.initReport?.ops[0]?.result).toBe("abandoned");
+    const rec = stored<RecoveryPending>(h.fake, "recovery:pending")?.entries[0];
+    expect(rec).toMatchObject({ from: h.aId, to: "B" });
+    expect(rec?.incoming.map((t) => t.url)).toEqual(bUrls(3));
+    await h.svc.tracker.flush(h.windowId);
+    expect(stored<WorkspaceTabs>(h.fake, Keys.wsTabs(h.aId))?.tabs.map((t) => t.url)).toEqual(
+      A_URLS,
+    );
+    const st = stored<WindowState>(h.fake, Keys.window(h.windowId));
+    expect(st?.activeWorkspaceId).not.toBe(h.aId);
+    const unsorted = stored<WorkspaceTabs>(h.fake, Keys.wsTabs(st?.activeWorkspaceId ?? ""));
+    expect(unsorted?.tabs.map((t) => t.url)).toEqual(expect.arrayContaining(bUrls(3)));
+  });
+
+  it("ownerOf ignores windows:* records from another epoch (M)", async () => {
+    const h = await world(2);
+    const other = h.fake.addWindow(["https://o.example/"]);
+    // a stale record (previous browser session) naming a reused, live window id
+    h.fake.local.set(Keys.window(other), { activeWorkspaceId: "B", sessionEpoch: "old" });
+    expect(await h.svc.engine.ownerOf("B")).toBeNull();
+    await h.ok("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    expectSwitched(h, 2);
+  });
+
+  it("removals a previous worker's switch caused are recognized after a restart (N)", async () => {
+    const h = await world(3);
+    const outgoing = [...h.fake.tabsOf(h.windowId)].filter((t) => !t.pinned).map((t) => t.id);
+    await h.ok("workspace.switch", { windowId: h.windowId, workspaceId: "B" });
+    await h.restart();
+    for (const id of outgoing) {
+      expect(await h.svc.engine.wasClosedBySwitch(id, h.windowId)).toBe(true);
+    }
+    expect(await h.svc.engine.wasClosedBySwitch(424_242, h.windowId)).toBe(false);
+    expect(stored<ClosedTab[]>(h.fake, Keys.recentlyClosed)).toEqual([]);
   });
 });

@@ -14,7 +14,7 @@ import { BgContext } from "./context";
 import { purgeExpiredTrash, registerHandlers } from "./handlers";
 import { Lane, LaneQueue } from "./lanes";
 import { POMODORO_ALARM, PomodoroService } from "./pomodoro";
-import { ALARMS, type InitReport, ReadyBarrier, runInit } from "./ready";
+import { ALARMS, type InitReport, ReadyBarrier, type ReadyState, runInit } from "./ready";
 import { type Logger, Repository } from "./repository";
 import { SessionGuard } from "./session-guard";
 import { Suspender } from "./suspender";
@@ -48,10 +48,13 @@ export interface Services {
   barrier: ReadyBarrier;
   /** Last init report (diagnostics/tests). */
   initReport: InitReport | null;
-  ready(): Promise<void>;
+  /** Waits for the current init attempt (never rejects; may be degraded). */
+  ready(): Promise<ReadyState>;
+  /** Like ready(), but first re-attempts a failed init (messages, alarms, startup). */
+  readyOrRetry(): Promise<ReadyState>;
   /** Registers listeners (synchronously). */
   start(): void;
-  /** Runs the init barrier once. */
+  /** Runs the init barrier (again, if the last attempt failed). Rejects when it fails. */
   init(): Promise<void>;
   onAlarm(name: string): Promise<void>;
   stop(): void;
@@ -64,6 +67,13 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
   const ctx = new BgContext(ports, repo, lanes, opts.directSchemes ?? ["chrome:", "about:"], log);
   const barrier = new ReadyBarrier();
   const ready = () => barrier.ready();
+  let services: Services | null = null;
+  const readyOrRetry = (): Promise<ReadyState> => {
+    if (barrier.isDegraded && !barrier.isRunning && services) {
+      void services.init().catch((e) => log.warn("[tabitat] init retry failed", e));
+    }
+    return barrier.ready();
+  };
   const badge = new Badge(ctx);
 
   // Late-bound references (services depend on each other through narrow callbacks).
@@ -82,7 +92,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
   const trackerDeps: ConstructorParameters<typeof TabTracker>[1] = {
     ready,
     isLocked: (w) => engine.isLocked(w),
-    wasClosedBySwitch: (id) => engine.wasClosedBySwitch(id),
+    wasClosedBySwitch: (id, w) => engine.wasClosedBySwitch(id, w),
     onTabReplaced: (a, r) => engine.onTabReplaced(a, r),
     onOrphanedOp: async (w) => {
       const op = await repo.getOp(w);
@@ -105,10 +115,20 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
 
   const backup = new BackupService(ctx, {
     markDirty: (w) => trackerRef.markDirty(w),
+    // backup.import runs in the global lane: call the un-laned snapshot directly.
+    snapshotNow: (w) => trackerRef.snapshotNow(w),
+    takeGeneration: () => guardRef.take({ force: true }),
+    hasRunningOps: () => engine.hasRunningOps(),
   });
   const suspender = new Suspender(ctx, { isLocked: (w) => engine.isLocked(w) });
   const pomodoro = new PomodoroService(ctx);
-  const router = new CommandRouter({ lanes, now: ports.now, ready, log });
+  const router = new CommandRouter({
+    lanes,
+    now: ports.now,
+    ready: readyOrRetry,
+    readOnly: READ_ONLY_COMMANDS,
+    log,
+  });
   const shortcuts = new Shortcuts({
     shell: ports.shell,
     dispatch: (m) => router.dispatch(m),
@@ -118,7 +138,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
   });
   const subs: Unsubscribe[] = [];
 
-  const services: Services = {
+  services = {
     ports,
     ctx,
     repo,
@@ -135,11 +155,14 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
     barrier,
     initReport: null,
     ready,
+    readyOrRetry,
     start() {
       trackerRef.start();
       subs.push(
         ports.events.onAlarm((name) => {
-          void services.onAlarm(name).catch((e) => log.error("[tabitat] alarm failed", name, e));
+          void (services as Services)
+            .onAlarm(name)
+            .catch((e) => log.error("[tabitat] alarm failed", name, e));
         }),
         ports.events.onCommand((command, tab) => {
           // Synchronous: side panel / popup must open inside the gesture.
@@ -148,8 +171,9 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
       );
     },
     init() {
+      const self = services as Services;
       return barrier.run(async () => {
-        services.initReport = await runInit({
+        self.initReport = await runInit({
           ctx,
           engine,
           tracker: trackerRef,
@@ -160,9 +184,10 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
       });
     },
     async onAlarm(name) {
-      await ready();
+      if ((await readyOrRetry()).degraded) return;
       switch (name) {
         case ALARMS.flushDirty:
+          // Rediscovers durable dirty:* markers and op:switch:* records (not in-memory flags).
           await trackerRef.flushAll();
           await engine.resumePending();
           return;
@@ -173,7 +198,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
           await lanes.run(["suspender"], () => suspender.scan());
           return;
         case ALARMS.trashPurge:
-          await lanes.run([Lane.trash], () => purgeExpiredTrash(services));
+          await lanes.run([Lane.trash], () => purgeExpiredTrash(services as Services));
           return;
         case POMODORO_ALARM:
           await lanes.run([Lane.key("pomodoro")], () => pomodoro.onAlarm());
@@ -188,5 +213,12 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
   registerHandlers(router, services);
   return services;
 }
+
+/** Commands that still answer while init is degraded (they never write). */
+export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  "op.status",
+  "system.ping",
+  "backup.export",
+]);
 
 export { switchLanes };

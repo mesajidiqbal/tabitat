@@ -16,7 +16,11 @@ import type {
 export interface LiveTab {
   id: number;
   windowId: number;
+  /** Committed URL, or the pending one while a navigation is loading (platform mapping). */
   url: string;
+  /** Uncommitted navigation target (Chrome `Tab.pendingUrl`), when one is in flight. */
+  pendingUrl?: string;
+  status?: "loading" | "complete";
   title: string;
   index: number;
   pinned: boolean;
@@ -87,6 +91,8 @@ export interface SwitchPlannerInput {
    * Saved tabs with other internal schemes are reported as skipped. Defaults to chrome:/about:.
    */
   directSchemes?: string[];
+  /** Our extension origin (`chrome.runtime.getURL("")`): our own pages are saved and restored. */
+  ownOrigin?: string;
 }
 
 export interface SwitchPlan {

@@ -40,7 +40,7 @@ describe("Repository", () => {
 
   it("quarantines a corrupt record under corrupt:<key> instead of throwing", async () => {
     const { fake, repo: r, log } = repo();
-    const bad = { ...meta("a"), color: "chartreuse" };
+    const bad = { ...meta("a"), id: "not-this-key", color: "chartreuse" };
     fake.local.set(Keys.wsMeta("a"), bad);
     expect(await r.getWorkspaceMeta("a")).toBeNull();
     expect(fake.local.get(Keys.wsMeta("a"))).toBeUndefined();
@@ -92,5 +92,112 @@ describe("Repository", () => {
     fake.local.set(Keys.opSwitch(1), { bad: true });
     expect(await r.listOps()).toEqual([]);
     expect(fake.local.get("corrupt:op:switch:1")).toBeDefined();
+  });
+
+  it("ws:tabs: one bad tab is quarantined, the other tabs stay (K)", async () => {
+    const { fake, repo: r } = repo();
+    const good = (id: string, i: number) => ({
+      id,
+      url: `https://${id}.example/`,
+      title: id,
+      index: i,
+    });
+    fake.local.set(Keys.wsTabs("a"), {
+      tabs: [
+        good("t1", 0),
+        { ...good("t2", 1), url: "javascript:alert(1)" },
+        { ...good("t3", 2), favIconUrl: "data:image/png;base64,AA" },
+        { ...good("t1", 3), url: "https://dup.example/" },
+      ],
+      activeSavedTabId: "t3",
+      updatedAt: 5,
+      rev: 4,
+    });
+    const tabs = await r.getWorkspaceTabs("a");
+    expect(tabs?.tabs.map((t) => t.url)).toEqual([
+      "https://t1.example/",
+      "https://t3.example/",
+      "https://dup.example/",
+    ]);
+    expect(new Set(tabs?.tabs.map((t) => t.id)).size).toBe(3); // duplicate id re-assigned
+    expect(tabs?.tabs[1]?.favIconUrl).toBeUndefined();
+    expect(tabs?.activeSavedTabId).toBe("t3");
+    expect(tabs?.rev).toBe(5);
+    // written back in the same set as the corrupt copy of the dropped entry only
+    expect(fake.local.get(Keys.wsTabs("a"))).toEqual(tabs);
+    expect(fake.local.get("corrupt:ws:tabs:a")).toMatchObject({
+      key: "ws:tabs:a",
+      raw: [{ id: "t2", url: "javascript:alert(1)" }],
+      salvaged: true,
+    });
+  });
+
+  it("salvage never removes the key before the salvaged value is written", async () => {
+    const { fake, repo: r } = repo();
+    const raw = {
+      tabs: [{ id: "x", url: "javascript:x", title: "", index: 0 }],
+      updatedAt: 1,
+      rev: 0,
+    };
+    fake.local.set(Keys.wsTabs("a"), raw);
+    fake.failNext("storage.set");
+    expect((await r.getWorkspaceTabs("a"))?.tabs).toEqual([]);
+    expect(fake.local.get(Keys.wsTabs("a"))).toEqual(raw); // untouched: nothing removed
+    expect(fake.calls).not.toContain("storage.remove");
+  });
+
+  it("per-item salvage of index, recently closed, trash, todos, quick links, meta links", async () => {
+    const { fake, repo: r } = repo();
+    fake.local.set(Keys.wsMeta("a"), {
+      ...meta("a"),
+      color: "chartreuse",
+      resources: [{ id: "l", url: "blob:x", title: "", order: 0, addedAt: 1 }],
+    });
+    fake.local.set(Keys.wsMeta("b"), meta("b"));
+    fake.local.set(Keys.wsIndex, ["a", "a", "bad id", 7]);
+    expect(await r.getWorkspaceIndex()).toEqual(["a", "b"]);
+    expect(await r.getWorkspaceMeta("a")).toMatchObject({ id: "a", color: "grey", resources: [] });
+    fake.local.set(Keys.recentlyClosed, [
+      { id: "c1", url: "https://a.example/", title: "", closedAt: 1, favIconUrl: "blob:x" },
+      { id: "c2", url: "blob:https://x/", title: "", closedAt: 1 },
+    ]);
+    expect((await r.getRecentlyClosed()).map((c) => [c.id, c.favIconUrl])).toEqual([
+      ["c1", undefined],
+    ]);
+    fake.local.set(Keys.todos("global"), {
+      items: [{ id: "t", text: "x", done: false, order: 0, createdAt: 1 }, { nope: 1 }],
+      rev: 2,
+    });
+    expect((await r.getTodos("global"))?.items.map((t) => t.id)).toEqual(["t"]);
+    fake.local.set(Keys.quicklinks, {
+      items: [
+        { id: "q", url: "https://q/", title: "", order: 0 },
+        { id: "z", url: "javascript:x", title: "", order: 1 },
+      ],
+      rev: 1,
+    });
+    expect((await r.getQuickLinks()).items.map((q) => q.id)).toEqual(["q"]);
+    fake.local.set(Keys.trash, {
+      items: [
+        {
+          id: "w",
+          kind: "workspace",
+          deletedAt: 1,
+          meta: meta("w"),
+          tabs: {
+            tabs: [{ id: "x", url: "javascript:x", title: "", index: 0 }],
+            updatedAt: 1,
+            rev: 0,
+          },
+        },
+        { id: "junk", kind: "nope" },
+      ],
+    });
+    const trash = await r.getTrash();
+    expect(trash.items.map((i) => i.id)).toEqual(["w"]);
+    // non-salvageable containers are still quarantined whole
+    fake.local.set(Keys.todos("x"), "garbage");
+    expect(await r.getTodos("x")).toBeNull();
+    expect(fake.local.get(Keys.todos("x"))).toBeUndefined();
   });
 });

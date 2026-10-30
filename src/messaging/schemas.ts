@@ -5,13 +5,15 @@
 import * as v from "valibot";
 import {
   ColorSchema,
+  IdSchema,
   QuickLinkSchema,
   RestorableUrlSchema,
   TodoSchema,
 } from "../core/model/schemas";
 import type { CommandType } from "./commands";
 
-const Id = v.pipe(v.string(), v.minLength(1));
+/** Same id policy as the stored records (core IdSchema). */
+const Id = IdSchema;
 const WindowId = v.pipe(v.number(), v.integer());
 const TabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 const Rev = v.optional(v.pipe(v.number(), v.integer(), v.minValue(0)));

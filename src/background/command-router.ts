@@ -44,11 +44,19 @@ interface Route {
   exclusive?: (payload: unknown) => string;
 }
 
+/** What the init barrier reports; `degraded` = init failed (read-only commands only). */
+export interface RouterReadyState {
+  degraded: boolean;
+  error?: string;
+}
+
 export interface RouterOptions {
   lanes: LaneQueue;
   now: () => number;
   /** Awaited before any handler runs (init barrier). */
-  ready?: () => Promise<void>;
+  ready?: () => Promise<RouterReadyState | undefined> | Promise<void>;
+  /** Commands allowed while init is degraded (they must not write). */
+  readOnly?: ReadonlySet<string>;
   dedupMs?: number;
   log?: Logger;
 }
@@ -156,7 +164,16 @@ export class CommandRouter {
         }
         this.exclusiveKeys.add(exclusiveKey);
       }
-      if (this.opts.ready) await this.opts.ready();
+      if (this.opts.ready) {
+        const st = (await this.opts.ready()) as RouterReadyState | undefined;
+        if (st?.degraded && !this.opts.readOnly?.has(msg.type)) {
+          return errorEnvelope(
+            "internal",
+            `${msg.type}: the extension failed to start (${st.error ?? "unknown error"}); retrying`,
+            true,
+          );
+        }
+      }
       const lanes = route.lanes(payload);
       const value = await this.opts.lanes.run(typeof lanes === "string" ? [lanes] : lanes, () =>
         route.handler(payload, { requestId: msg.requestId }),

@@ -29,7 +29,7 @@ import type {
   WorkspaceTabs,
 } from "../model/types";
 import { DEFAULT_SETTINGS, KEY_PREFIX, Keys } from "../model/types";
-import { normalizeForMatch } from "../ops/url";
+import { isAllowedFavIconUrl, normalizeForMatch } from "../ops/url";
 
 export type ImportMode = "replace" | "merge";
 
@@ -133,9 +133,62 @@ export function buildBackup(records: Record<string, unknown>, now: number): Back
   };
 }
 
-/** Validates an untrusted backup (URL policy included). Throws SchemaError. */
+/** Import bounds (ARCHITECTURE §10): larger files are rejected before validation. */
+export const IMPORT_LIMITS = {
+  maxBytes: 25 * 1024 * 1024,
+  maxWorkspaces: 1000,
+  maxTabs: 20_000,
+} as const;
+
+/**
+ * Checks an untrusted backup against IMPORT_LIMITS without validating it. `bytes` is the
+ * serialized size. Returns a human-readable reason, or null when within bounds.
+ */
+export function checkBackupLimits(input: unknown, bytes: number): string | null {
+  if (bytes > IMPORT_LIMITS.maxBytes) {
+    return `backup file is larger than ${IMPORT_LIMITS.maxBytes / (1024 * 1024)} MB`;
+  }
+  const data = isRec(input) && isRec(input.data) ? input.data : null;
+  const workspaces = data && Array.isArray(data.workspaces) ? data.workspaces : [];
+  if (workspaces.length > IMPORT_LIMITS.maxWorkspaces) {
+    return `backup has more than ${IMPORT_LIMITS.maxWorkspaces} workspaces`;
+  }
+  let tabs = 0;
+  for (const w of workspaces) {
+    const t = isRec(w) && isRec(w.tabs) && Array.isArray(w.tabs.tabs) ? w.tabs.tabs.length : 0;
+    tabs += t;
+    if (tabs > IMPORT_LIMITS.maxTabs) {
+      return `backup has more than ${IMPORT_LIMITS.maxTabs} tabs`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Drops favicon URLs outside the favicon allowlist (cosmetic; older exports may carry them)
+ * so they do not make an otherwise valid backup unimportable. Returns a copy when it changes.
+ */
+function stripDisallowedFavicons(input: unknown): unknown {
+  if (!isRec(input) || !isRec(input.data) || !Array.isArray(input.data.workspaces)) return input;
+  let changed = false;
+  const workspaces = input.data.workspaces.map((w: unknown) => {
+    if (!isRec(w) || !isRec(w.tabs) || !Array.isArray(w.tabs.tabs)) return w;
+    const tabs = w.tabs.tabs.map((t: unknown) => {
+      if (!isRec(t) || typeof t.favIconUrl !== "string" || isAllowedFavIconUrl(t.favIconUrl)) {
+        return t;
+      }
+      changed = true;
+      const { favIconUrl: _drop, ...rest } = t;
+      return rest;
+    });
+    return { ...w, tabs: { ...w.tabs, tabs } };
+  });
+  return changed ? { ...input, data: { ...input.data, workspaces } } : input;
+}
+
+/** Validates an untrusted backup (URL and id policy included). Throws SchemaError. */
 export function validateBackup(input: unknown): BackupFile {
-  return parseBackupFile(input);
+  return parseBackupFile(stripDisallowedFavicons(input));
 }
 
 // ------------------------------------------------------------------ import
@@ -330,7 +383,7 @@ export function planImport(
     mode === "replace"
       ? Object.keys(existing).filter(
           (k) =>
-            !(k in set) &&
+            !Object.hasOwn(set, k) &&
             (k.startsWith(KEY_PREFIX.wsMeta) ||
               k.startsWith(KEY_PREFIX.wsTabs) ||
               k.startsWith(KEY_PREFIX.todos) ||

@@ -26,7 +26,27 @@ export const DEFAULT_DIRECT_SCHEMES: readonly string[] = ["chrome:", "about:"];
 
 export interface ClassifyOptions {
   /** Internal schemes created directly ("edge:" or "edge"); others classify as "skip". */
-  directSchemes?: readonly string[];
+  directSchemes?: readonly string[] | undefined;
+  /**
+   * Our own extension origin (`chrome.runtime.getURL("")`, e.g. "chrome-extension://<id>/").
+   * Our pages (dashboard, options, recovery, …) on it classify as "direct": they are saved and
+   * restored like chrome:// pages. The placeholder page itself is unwrapped before classifying.
+   */
+  ownOrigin?: string | undefined;
+}
+
+/** Path of the placeholder page; never restored as itself. */
+export const PLACEHOLDER_PAGE = "suspended.html";
+
+/** Scheme of extension pages. Stored data may contain them (our own pages, see ownOrigin). */
+export const EXTENSION_SCHEME = "chrome-extension:";
+
+function isOwnPage(url: string, ownOrigin: string | undefined): boolean {
+  if (!ownOrigin) return false;
+  const origin = ownOrigin.endsWith("/") ? ownOrigin : `${ownOrigin}/`;
+  if (!url.startsWith(origin)) return false;
+  const path = url.slice(origin.length).split(/[?#]/)[0] ?? "";
+  return path !== "" && path !== PLACEHOLDER_PAGE;
 }
 
 /** Schemes that must never be stored or imported. */
@@ -60,16 +80,21 @@ export function classifyUrl(url: string, opts: ClassifyOptions = {}): RestoreMod
   const scheme = schemeOf(url);
   if (scheme === null) return "skip";
   if (PLACEHOLDER_SCHEMES.includes(scheme)) return "placeholder";
+  if (scheme === EXTENSION_SCHEME) return isOwnPage(url, opts.ownOrigin) ? "direct" : "skip";
   const direct = opts.directSchemes?.map(normalizeScheme) ?? DEFAULT_DIRECT_SCHEMES;
   if (DIRECT_SCHEMES.includes(scheme) && direct.includes(scheme)) return "direct";
   return "skip";
 }
 
 /**
- * URL policy for stored tabs/links (schemas): http(s)/file/ftp or ANY known browser-internal
- * scheme, independent of the running browser.
+ * URL policy for every stored URL (tabs, links, quick links, recently closed — schemas):
+ * http(s)/file/ftp, ANY known browser-internal scheme, or an extension page (our own pages are
+ * saved; which extension is ours is only known at runtime, so the storage policy accepts the
+ * scheme and restore classifies foreign ones as "skip"). Never blob:, filesystem:, data:, …
  */
 export function isRestorableUrl(url: string): boolean {
+  if (isDangerousUrl(url)) return false;
+  if (schemeOf(url) === EXTENSION_SCHEME) return hostOf(url) !== null;
   return classifyUrl(url, { directSchemes: DIRECT_SCHEMES }) !== "skip";
 }
 
@@ -165,9 +190,46 @@ export const FAVICON_SCHEMES: readonly string[] = [
   "chrome:",
 ];
 
+/**
+ * Favicon URL policy, shared by snapshot sanitising and the record schemas: an allowlisted
+ * scheme (FAVICON_SCHEMES) and never a dangerous one, whatever the parser makes of it.
+ */
+export function isAllowedFavIconUrl(url: string): boolean {
+  if (typeof url !== "string" || url === "" || isDangerousUrl(url)) return false;
+  const scheme = schemeOf(url);
+  return scheme !== null && FAVICON_SCHEMES.includes(scheme);
+}
+
 /** The favicon URL if it may be stored (no data:, blob:, javascript:, …), else undefined. */
 export function sanitizeFavIconUrl(url: string | undefined): string | undefined {
-  if (!url) return undefined;
-  const scheme = schemeOf(url);
-  return scheme !== null && FAVICON_SCHEMES.includes(scheme) ? url : undefined;
+  return url !== undefined && isAllowedFavIconUrl(url) ? url : undefined;
+}
+
+/**
+ * The URL a live tab is saved as. A tab whose committed URL is blank (empty, about:blank, a
+ * new-tab page) but which is navigating to a restorable URL is saved as that pending URL: it is
+ * content in flight, never disposable blank content.
+ */
+export function captureUrl(tab: { url: string; pendingUrl?: string | undefined }): string {
+  const pending = tab.pendingUrl;
+  if (
+    pending &&
+    (tab.url.trim() === "" || isBlankPageUrl(tab.url)) &&
+    isRestorableUrl(pending) &&
+    !isBlankPageUrl(pending)
+  ) {
+    return pending;
+  }
+  return tab.url;
+}
+
+/**
+ * The page URL handed to the browser's favicon service for a placeholder: origin + path only,
+ * so query tokens and fragments (session ids, reset links) never reach the favicon cache.
+ * Empty when the target has no http(s)/file/ftp origin.
+ */
+export function faviconPageUrl(target: string): string {
+  const u = parseUrl(target);
+  if (u === null || !PLACEHOLDER_SCHEMES.includes(u.protocol)) return "";
+  return u.protocol === "file:" ? `file://${u.pathname}` : `${u.origin}${u.pathname}`;
 }

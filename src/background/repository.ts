@@ -1,11 +1,12 @@
 /**
- * Typed, validated access to storage.local (ARCHITECTURE §6). Reads never throw on bad data:
- * a record that fails its schema is copied to `corrupt:<key>` and removed from its live key
- * (never silently dropped), and the read returns null (or a salvaged value where one exists).
+ * Typed, validated access to storage.local (ARCHITECTURE §6). Reads never throw on bad data.
+ * A record that fails its schema is salvaged item by item where it has items (workspace tabs,
+ * links, index, recently closed, trash, todos, quick links): the valid items are kept and the
+ * salvaged value is written over the key in the SAME storage.set as the `corrupt:<key>` copy of
+ * the dropped items (the key is never missing in between). A record that cannot be salvaged is
+ * copied to `corrupt:<key>` and then removed, and the read returns null.
  */
 import {
-  isClosedTab,
-  parseClosedTab,
   parseMeta,
   parseNote,
   parsePomodoroState,
@@ -20,6 +21,7 @@ import {
   parseWindowState,
   parseWorkspaceIndex,
   parseWorkspaceMeta,
+  parseWorkspacePrev,
   parseWorkspaceTabs,
 } from "../core/model/schemas";
 import type {
@@ -37,11 +39,22 @@ import type {
   WindowState,
   WorkspaceId,
   WorkspaceMeta,
+  WorkspacePrev,
   WorkspaceTabs,
 } from "../core/model/types";
 import { KEY_PREFIX, Keys } from "../core/model/types";
 import type { StoragePort } from "../platform/types";
 import { BgKeys, parseRecoveryPending, type RecoveryPending } from "./keys";
+import {
+  type Salvaged,
+  salvageQuickLinks,
+  salvageRecentlyClosed,
+  salvageTodoList,
+  salvageTrash,
+  salvageWorkspaceIndex,
+  salvageWorkspaceMeta,
+  salvageWorkspaceTabs,
+} from "./salvage";
 
 export interface Workspace {
   meta: WorkspaceMeta;
@@ -64,36 +77,54 @@ export class Repository {
 
   // ------------------------------------------------------------------ generic
 
-  /** Parses `raw` for `key`; on failure quarantines it and returns `salvage?.(raw) ?? null`. */
+  /**
+   * Parses `raw` for `key`. On failure: with a salvager that keeps something, writes the
+   * salvaged value and the dropped items' corrupt copy in one set and returns the salvaged value;
+   * otherwise quarantines the whole record and returns null.
+   */
   async validate<T>(
     key: string,
     raw: unknown,
     parse: (x: unknown) => T,
-    salvage?: (raw: unknown) => T | null,
+    salvage?: (raw: unknown) => Salvaged<T> | null | Promise<Salvaged<T> | null>,
   ): Promise<T | null> {
     if (raw === undefined) return null;
     try {
       return parse(raw);
     } catch (e) {
-      const saved = await this.quarantine(key, raw, e);
-      const fixed = salvage?.(raw) ?? null;
-      if (fixed !== null && saved) {
-        try {
-          await this.store.set({ [key]: fixed });
-        } catch (err) {
-          this.log.warn("[tabitat] could not write salvaged record", key, err);
-        }
+      const fixed = salvage ? await salvage(raw) : null;
+      if (fixed === null) {
+        await this.quarantine(key, raw, e);
+        return null;
       }
-      return fixed;
+      const message = e instanceof Error ? e.message : String(e);
+      this.log.warn("[tabitat] salvaged corrupt record", key, message, fixed.dropped.length);
+      try {
+        const target = await this.corruptTarget(key);
+        await this.store.set({
+          [target]: { key, raw: fixed.dropped, error: message, at: this.now(), salvaged: true },
+          [key]: fixed.value,
+        });
+      } catch (err) {
+        // The original stays in place; the salvaged value is still served for this read.
+        this.log.warn("[tabitat] could not write salvaged record", key, err);
+      }
+      return fixed.value;
     }
   }
 
   async read<T>(
     key: string,
     parse: (x: unknown) => T,
-    salvage?: (raw: unknown) => T | null,
+    salvage?: (raw: unknown) => Salvaged<T> | null | Promise<Salvaged<T> | null>,
   ): Promise<T | null> {
     return this.validate(key, await this.store.get(key), parse, salvage);
+  }
+
+  /** `corrupt:<key>`, or `corrupt:<key>:<at>` when that is taken (copies are appended, never overwritten). */
+  private async corruptTarget(key: string): Promise<string> {
+    const existing = await this.store.get(BgKeys.corrupt(key));
+    return existing === undefined ? BgKeys.corrupt(key) : `${BgKeys.corrupt(key)}:${this.now()}`;
   }
 
   /** Copies a bad record to `corrupt:<key>` and removes the original. Returns false if the copy failed (original kept). */
@@ -102,8 +133,7 @@ export class Repository {
     this.log.warn("[tabitat] quarantining corrupt record", key, message);
     const at = this.now();
     try {
-      const existing = await this.store.get(BgKeys.corrupt(key));
-      const target = existing === undefined ? BgKeys.corrupt(key) : `${BgKeys.corrupt(key)}:${at}`;
+      const target = await this.corruptTarget(key);
       await this.store.set({ [target]: { key, raw, error: message, at } });
     } catch (e) {
       this.log.error("[tabitat] quarantine failed; keeping original", key, e);
@@ -150,37 +180,51 @@ export class Repository {
   async getWorkspaceIndex(): Promise<string[]> {
     const raw = await this.store.get(Keys.wsIndex);
     if (raw === undefined) return [];
-    try {
-      return parseWorkspaceIndex(raw);
-    } catch (e) {
-      // Rebuild from the surviving entries plus every ws:meta:* key: never lose a workspace.
-      const saved = await this.quarantine(Keys.wsIndex, raw, e);
-      const kept = Array.isArray(raw)
-        ? raw.filter((x): x is string => typeof x === "string" && x !== "")
-        : [];
-      const metas = Object.keys(await this.listRaw(KEY_PREFIX.wsMeta)).map((k) =>
-        k.slice(KEY_PREFIX.wsMeta.length),
-      );
-      const index = [...new Set([...kept, ...metas])];
-      if (saved) await this.store.set({ [Keys.wsIndex]: index });
-      return index;
-    }
+    // Salvage: the surviving valid ids plus every ws:meta:* key (never lose a workspace).
+    const salvage = async (r: unknown): Promise<Salvaged<string[]>> => {
+      const kept = salvageWorkspaceIndex(r) ?? { value: [], dropped: [r] };
+      const metas = Object.keys(await this.listRaw(KEY_PREFIX.wsMeta))
+        .map((k) => k.slice(KEY_PREFIX.wsMeta.length))
+        .filter((id) => !kept.value.includes(id) && salvageWorkspaceIndex([id])?.value.length);
+      return { value: [...kept.value, ...metas], dropped: kept.dropped };
+    };
+    return (await this.validate(Keys.wsIndex, raw, parseWorkspaceIndex, salvage)) ?? [];
   }
 
+  private metaSalvager(id: WorkspaceId) {
+    return (raw: unknown) => salvageWorkspaceMeta(raw, id, this.now());
+  }
+
+  private readonly tabsSalvager = (raw: unknown) => salvageWorkspaceTabs(raw, this.now());
+
   getWorkspaceMeta(id: WorkspaceId): Promise<WorkspaceMeta | null> {
-    return this.read(Keys.wsMeta(id), parseWorkspaceMeta);
+    return this.read(Keys.wsMeta(id), parseWorkspaceMeta, this.metaSalvager(id));
   }
 
   getWorkspaceTabs(id: WorkspaceId): Promise<WorkspaceTabs | null> {
-    return this.read(Keys.wsTabs(id), parseWorkspaceTabs);
+    return this.read(Keys.wsTabs(id), parseWorkspaceTabs, this.tabsSalvager);
+  }
+
+  getWorkspacePrev(id: WorkspaceId): Promise<WorkspacePrev | null> {
+    return this.read(Keys.wsPrev(id), parseWorkspacePrev);
   }
 
   /** Meta + tabs (tabs default to an empty snapshot). null when the meta is missing/corrupt. */
   async getWorkspace(id: WorkspaceId): Promise<Workspace | null> {
     const raw = await this.store.getMany([Keys.wsMeta(id), Keys.wsTabs(id)]);
-    const meta = await this.validate(Keys.wsMeta(id), raw[Keys.wsMeta(id)], parseWorkspaceMeta);
+    const meta = await this.validate(
+      Keys.wsMeta(id),
+      raw[Keys.wsMeta(id)],
+      parseWorkspaceMeta,
+      this.metaSalvager(id),
+    );
     if (!meta) return null;
-    const tabs = await this.validate(Keys.wsTabs(id), raw[Keys.wsTabs(id)], parseWorkspaceTabs);
+    const tabs = await this.validate(
+      Keys.wsTabs(id),
+      raw[Keys.wsTabs(id)],
+      parseWorkspaceTabs,
+      this.tabsSalvager,
+    );
     return { meta, tabs: tabs ?? emptyTabs(meta.updatedAt) };
   }
 
@@ -192,9 +236,19 @@ export class Repository {
     const raw = await this.store.getMany(keys);
     const out: Workspace[] = [];
     for (const id of index) {
-      const meta = await this.validate(Keys.wsMeta(id), raw[Keys.wsMeta(id)], parseWorkspaceMeta);
+      const meta = await this.validate(
+        Keys.wsMeta(id),
+        raw[Keys.wsMeta(id)],
+        parseWorkspaceMeta,
+        this.metaSalvager(id),
+      );
       if (!meta) continue;
-      const tabs = await this.validate(Keys.wsTabs(id), raw[Keys.wsTabs(id)], parseWorkspaceTabs);
+      const tabs = await this.validate(
+        Keys.wsTabs(id),
+        raw[Keys.wsTabs(id)],
+        parseWorkspaceTabs,
+        this.tabsSalvager,
+      );
       out.push({ meta, tabs: tabs ?? emptyTabs(meta.updatedAt) });
     }
     return out;
@@ -230,26 +284,27 @@ export class Repository {
   }
 
   async getRecentlyClosed(): Promise<ClosedTab[]> {
-    return (
-      (await this.read(Keys.recentlyClosed, parseRecentlyClosed, (raw) =>
-        Array.isArray(raw) ? raw.filter(isClosedTab).map((t) => parseClosedTab(t)) : null,
-      )) ?? []
-    );
+    return (await this.read(Keys.recentlyClosed, parseRecentlyClosed, salvageRecentlyClosed)) ?? [];
   }
 
   async getTrash(): Promise<Trash> {
-    return (await this.read(Keys.trash, parseTrash)) ?? { items: [] };
+    return (
+      (await this.read(Keys.trash, parseTrash, (raw) => salvageTrash(raw, this.now()))) ?? {
+        items: [],
+      }
+    );
   }
 
   async getSessionsIndex(): Promise<number[]> {
     return (
-      (await this.read(Keys.sessionsIndex, parseSessionsIndex, (raw) =>
-        Array.isArray(raw)
-          ? [...new Set(raw.filter((x): x is number => Number.isInteger(x) && x >= 0))].sort(
-              (a, b) => a - b,
-            )
-          : null,
-      )) ?? []
+      (await this.read(Keys.sessionsIndex, parseSessionsIndex, (raw) => {
+        if (!Array.isArray(raw)) return null;
+        const ok = (x: unknown): x is number => Number.isInteger(x) && (x as number) >= 0;
+        return {
+          value: [...new Set(raw.filter(ok))].sort((a, b) => a - b),
+          dropped: raw.filter((x) => !ok(x)),
+        };
+      })) ?? []
     );
   }
 
@@ -258,7 +313,7 @@ export class Repository {
   }
 
   getTodos(scope: Scope): Promise<TodoList | null> {
-    return this.read(Keys.todos(scope), parseTodoList);
+    return this.read(Keys.todos(scope), parseTodoList, salvageTodoList);
   }
 
   getNote(scope: Scope): Promise<Note | null> {
@@ -266,7 +321,12 @@ export class Repository {
   }
 
   async getQuickLinks(): Promise<QuickLinks> {
-    return (await this.read(Keys.quicklinks, parseQuickLinks)) ?? { items: [], rev: 0 };
+    return (
+      (await this.read(Keys.quicklinks, parseQuickLinks, salvageQuickLinks)) ?? {
+        items: [],
+        rev: 0,
+      }
+    );
   }
 
   getPomodoro(): Promise<PomodoroState | null> {

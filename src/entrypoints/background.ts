@@ -13,7 +13,9 @@ export default defineBackground({
     services.start();
     attachRpcServer(services.router);
     chrome.runtime.onStartup.addListener(() => {
-      // Waking the worker is enough: init below runs once per worker life.
+      // Init runs once per worker life; a failed init is re-attempted here (and by the next
+      // alarm or message).
+      void services.init().catch((e) => console.error("[tabitat] init retry failed", e));
     });
     chrome.runtime.onInstalled.addListener((details) => {
       console.log("[tabitat] installed", details.reason);

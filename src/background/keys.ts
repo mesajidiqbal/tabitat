@@ -1,21 +1,45 @@
 /** Storage keys owned by the background layer (not part of core's Keys contract). */
 import * as v from "valibot";
 import type { SavedTab, SwitchStage, WorkspaceId, WorkspaceTabs } from "../core/model/types";
+import type { LiveGroup, LiveTab } from "../core/ops/types";
 
 export const BgKeys = {
   /** Abandoned switch ops waiting for the recovery screen (storage.local). */
   recoveryPending: "recovery:pending",
   /** Quarantined record that failed validation (storage.local). */
   corrupt: (key: string) => `corrupt:${key}` as const,
-  /** Last known url/title of each tab of a window, for recently-closed (storage.session). */
-  lastKnown: (windowId: number) => `lastKnown:${windowId}` as const,
+  /**
+   * Last-known tabs + groups of a window (storage.session), updated on every tab/group event, so
+   * a window that closes before its debounced snapshot (it can no longer be queried) is still
+   * saved with its newest contents. Also the source for recently-closed entries.
+   */
+  lk: (windowId: number) => `lk:${windowId}` as const,
+  /**
+   * Tab ids a switch closed (or deduplicated) in a window (storage.session), written before the
+   * removals so a worker restart mid-switch does not misread them as user closures.
+   */
+  switchClosed: (windowId: number) => `switchClosed:${windowId}` as const,
+  /** A staged import that could not be applied twice (storage.local; kept for recovery). */
+  importFailed: "import:failed",
 } as const;
 
 export const BG_PREFIX = {
   corrupt: "corrupt:",
-  lastKnown: "lastKnown:",
+  lk: "lk:",
   migration: "migration:",
 } as const;
+
+/** Value of BgKeys.lk(windowId). */
+export interface LastKnownWindow {
+  tabs: LiveTab[];
+  groups: LiveGroup[];
+}
+
+/** Value of BgKeys.switchClosed(windowId). */
+export interface SwitchClosed {
+  ids: number[];
+  at: number;
+}
 
 export interface RecoveryEntry {
   opId: string;

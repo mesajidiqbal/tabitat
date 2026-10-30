@@ -12,7 +12,7 @@ import {
   shuffle,
   workspaceTabs,
 } from "../testing/fixtures";
-import { snapshotWindow, tabsEqual } from "./snapshot";
+import { snapshotWindow, snapshotWindowDetailed, tabsEqual } from "./snapshot";
 import { buildPlaceholderUrl } from "./url";
 
 const opts = () => ({ placeholderBase: BASE, now: NOW, newId: seqIds("new") });
@@ -273,5 +273,73 @@ describe("tabsEqual", () => {
     expect(tabsEqual([a], [{ ...a, group: undefined }])).toBe(false);
     expect(tabsEqual([a], [{ ...a, group: { ...g, collapsed: true } }])).toBe(false);
     expect(tabsEqual([{ ...a, group: undefined }], [{ ...a, group: undefined }])).toBe(true);
+  });
+});
+
+describe("snapshotWindow — pending navigations, foreign placeholders, own pages", () => {
+  it("a blank tab navigating to a restorable URL is saved as its pendingUrl", () => {
+    const win = liveWindow([
+      { url: "about:blank", pendingUrl: "https://slow.example/article", status: "loading" },
+      { url: "", pendingUrl: "https://b.example/" },
+      { url: "about:blank", pendingUrl: "javascript:x" },
+    ]);
+    expect(snapshotWindow(win, null, opts()).tabs.map((t) => t.url)).toEqual([
+      "https://slow.example/article",
+      "https://b.example/",
+    ]);
+  });
+
+  it("excludeForeignPlaceholders drops placeholders of another workspace saved there", () => {
+    const pA = buildPlaceholderUrl(BASE, { u: "https://a.com/", t: "A", w: "A", s: "a1" });
+    const pB = buildPlaceholderUrl(BASE, { u: "https://b.com/", t: "B", w: "B", s: "b1" });
+    const pMoved = buildPlaceholderUrl(BASE, { u: "https://m.com/", t: "M", w: "B", s: "gone" });
+    const win = liveWindow([{ url: pA }, { url: pB }, { url: pMoved }, { url: "https://x.com/" }]);
+    const all = snapshotWindow(win, null, opts()).tabs.map((t) => t.url);
+    expect(all).toHaveLength(4);
+    const strict = snapshotWindow(win, null, {
+      ...opts(),
+      excludeForeignPlaceholders: { activeWorkspaceId: "A" },
+    });
+    expect(strict.tabs.map((t) => t.url)).toEqual(["https://a.com/", "https://x.com/"]);
+    const narrowed = snapshotWindow(win, null, {
+      ...opts(),
+      excludeForeignPlaceholders: {
+        activeWorkspaceId: "A",
+        isSavedElsewhere: (w, sid) => w === "B" && sid === "b1",
+      },
+    });
+    expect(narrowed.tabs.map((t) => t.url)).toEqual([
+      "https://a.com/",
+      "https://m.com/",
+      "https://x.com/",
+    ]);
+  });
+
+  it("our own extension pages are saved with ownOrigin, other extensions are not", () => {
+    const win = liveWindow([
+      { url: "chrome-extension://abcdefghijklmnop/dashboard.html" },
+      { url: "chrome-extension://other/x.html" },
+    ]);
+    expect(snapshotWindow(win, null, opts()).tabs).toEqual([]);
+    const own = snapshotWindow(win, null, {
+      ...opts(),
+      ownOrigin: "chrome-extension://abcdefghijklmnop/",
+    });
+    expect(own.tabs.map((t) => t.url)).toEqual([
+      "chrome-extension://abcdefghijklmnop/dashboard.html",
+    ]);
+  });
+
+  it("snapshotWindowDetailed maps live tab ids to saved ids", () => {
+    const win = liveWindow([
+      { id: 1, url: "https://a.com/" },
+      { id: 2, url: "about:blank" },
+      { id: 3, url: "https://b.com/" },
+    ]);
+    const prev = workspaceTabs([savedTab({ id: "keep", url: "https://b.com/" })]);
+    const d = snapshotWindowDetailed(win, prev, opts());
+    expect(d.savedIdByTabId.get(3)).toBe("keep");
+    expect(d.savedIdByTabId.has(2)).toBe(false);
+    expect(d.savedIdByTabId.get(1)).toBe(d.snapshot.tabs[0]?.id);
   });
 });

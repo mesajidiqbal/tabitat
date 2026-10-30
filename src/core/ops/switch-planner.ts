@@ -4,9 +4,9 @@
  */
 import type { SavedTab, SavedTabId, SwitchOp, SwitchStage, WorkspaceId } from "../model/types";
 import { LIMITS } from "../model/types";
-import { snapshotWindow } from "./snapshot";
+import { snapshotWindowDetailed } from "./snapshot";
 import type { CreateSpec, GroupSpec, OpeningPlan, SwitchPlan, SwitchPlannerInput } from "./types";
-import { buildPlaceholderUrl, classifyUrl, isBlankPageUrl, unwrapUrl } from "./url";
+import { buildPlaceholderUrl, captureUrl, classifyUrl, isBlankPageUrl, unwrapUrl } from "./url";
 
 export type PlanErrorCode = "same_workspace";
 
@@ -47,6 +47,8 @@ export interface OpeningOptions {
   chunkSize?: number;
   /** Internal schemes the running browser can open directly (default chrome:/about:). */
   directSchemes?: readonly string[];
+  /** Our extension origin: our own pages are created directly (ClassifyOptions.ownOrigin). */
+  ownOrigin?: string;
 }
 
 function cloneTab(t: SavedTab): SavedTab {
@@ -65,7 +67,10 @@ export function planOpening(incoming: readonly SavedTab[], opts: OpeningOptions)
   const restorable: Array<{ tab: SavedTab; mode: "placeholder" | "direct" }> = [];
   const skipped: SavedTab[] = [];
   for (const tab of ordered) {
-    const mode = classifyUrl(tab.url, { directSchemes: opts.directSchemes });
+    const mode = classifyUrl(tab.url, {
+      directSchemes: opts.directSchemes,
+      ownOrigin: opts.ownOrigin,
+    });
     if (mode === "skip" || restorable.length >= limit) skipped.push(cloneTab(tab));
     else restorable.push({ tab, mode });
   }
@@ -135,25 +140,32 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
   const { window } = input;
   const nonPinned = window.tabs.filter((t) => !t.pinned).sort((a, b) => a.index - b.index);
   const pinnedCount = window.tabs.length - nonPinned.length;
-  const classify = { directSchemes: input.directSchemes };
+  const classify = { directSchemes: input.directSchemes, ownOrigin: input.ownOrigin };
   // Blank/new-tab pages are never retained (always closed on switch, never saved), even when
   // their scheme is foreign to this browser (e.g. edge://newtab on Chrome).
-  const isRetained = (url: string) => {
-    const real = unwrapUrl(url, input.placeholderBase);
+  const isRetained = (t: (typeof nonPinned)[number]) => {
+    const real = unwrapUrl(captureUrl(t), input.placeholderBase);
     return !isBlankPageUrl(real) && classifyUrl(real, classify) === "skip";
   };
-  const outgoing = nonPinned.filter((t) => !isRetained(t.url));
-  const retainedTabIds = nonPinned.filter((t) => isRetained(t.url)).map((t) => t.id);
+  const outgoing = nonPinned.filter((t) => !isRetained(t));
+  const retainedTabIds = nonPinned.filter((t) => isRetained(t)).map((t) => t.id);
 
-  const outgoingSnapshot =
+  const detail =
     input.from === null && outgoing.length === 0
       ? null
-      : snapshotWindow(window, input.fromTabs, {
+      : snapshotWindowDetailed(window, input.fromTabs, {
           placeholderBase: input.placeholderBase,
           now: input.now,
           newId: input.newId,
           directSchemes: input.directSchemes,
+          ...(input.ownOrigin ? { ownOrigin: input.ownOrigin } : {}),
         });
+  const outgoingSnapshot = detail?.snapshot ?? null;
+  const outgoingSavedIds: Record<number, string> = {};
+  for (const t of outgoing) {
+    const sid = detail?.savedIdByTabId.get(t.id);
+    if (sid !== undefined) outgoingSavedIds[t.id] = sid;
+  }
 
   const incoming = [...input.toTabs.tabs].sort((a, b) => a.index - b.index).map(cloneTab);
   // Always creates at least one tab (blank if nothing is restorable), even when pinned or
@@ -165,6 +177,7 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
     restoreLimit: input.restoreLimit,
     placeholderBase: input.placeholderBase,
     directSchemes: input.directSchemes,
+    ...(input.ownOrigin ? { ownOrigin: input.ownOrigin } : {}),
   });
   const active = opening.chunks.flat().find((s) => s.active);
 
@@ -176,6 +189,7 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
     stage: "snapshot",
     sessionEpoch: input.sessionEpoch,
     outgoingTabIds: outgoing.map((t) => t.id),
+    outgoingSavedIds,
     createdTabIds: {},
     incoming,
     skipped: opening.skipped.map(cloneTab),

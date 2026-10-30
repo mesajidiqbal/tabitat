@@ -4,7 +4,13 @@
  */
 import type { WorkspaceId, WorkspaceMeta, WorkspaceTabs } from "../model/types";
 import type { LiveWindow } from "../ops/types";
-import { classifyUrl, isBlankPageUrl, normalizeForMatch, parsePlaceholderUrl } from "../ops/url";
+import {
+  captureUrl,
+  classifyUrl,
+  isBlankPageUrl,
+  normalizeForMatch,
+  parsePlaceholderUrl,
+} from "../ops/url";
 
 export const SIMILARITY_THRESHOLD = 0.6;
 
@@ -43,32 +49,38 @@ function propose(
   wsUrlSets: ReadonlyArray<Set<string>>,
   base: string,
   directSchemes: readonly string[] | undefined,
+  ownOrigin: string | undefined,
 ): Proposal {
   const known = new Set(workspaces.map((w) => w.meta.id));
   const urls = new Set<string>();
   const hints = new Map<string, number>();
-  let placeholders = 0;
+  /** Non-pinned, non-blank tabs: the denominator of the hint majority. */
+  let counted = 0;
   for (const tab of window.tabs) {
     if (tab.pinned) continue;
-    const ph = parsePlaceholderUrl(tab.url, base);
-    const url = ph?.u ?? tab.url;
+    const raw = captureUrl(tab);
+    const ph = parsePlaceholderUrl(raw, base);
+    const url = ph?.u ?? raw;
+    if (isBlankPageUrl(url) || url.trim() === "") continue;
+    counted++;
     // Same filter as snapshotWindow, so the sets compare like with like.
-    if (classifyUrl(url, { directSchemes }) !== "skip" && !isBlankPageUrl(url)) {
+    if (classifyUrl(url, { directSchemes, ownOrigin }) !== "skip") {
       urls.add(normalizeForMatch(url));
     }
     if (!ph) continue;
-    placeholders++;
     if (known.has(ph.w)) hints.set(ph.w, (hints.get(ph.w) ?? 0) + 1);
   }
 
   let best: [string, number] | null = null;
   for (const entry of hints) if (!best || entry[1] > best[1]) best = entry;
-  if (best && best[1] * 2 > placeholders) {
+  // A hint needs a strict majority of the window's (non-pinned, non-blank) tabs, so one stale
+  // placeholder cannot claim a window full of other tabs; a tie falls through to similarity.
+  if (best && best[1] * 2 > counted) {
     return {
       windowId: window.id,
       workspaceId: best[0],
       reason: "hint",
-      score: 1 + best[1] / placeholders,
+      score: 1 + best[1] / counted,
     };
   }
 
@@ -90,21 +102,23 @@ function propose(
 
 /**
  * One result per window that has tabs (windows with 0 tabs are ignored), in input order.
- * Majority placeholder `w` hint wins; else best Jaccard similarity >= 0.6 of normalized URL sets.
+ * A `w` hint held by a strict majority of the window's non-pinned, non-blank tabs wins; else best Jaccard similarity >= 0.6 of normalized URL sets.
  * A workspace goes to at most one window: the highest score keeps it (ties: earlier window),
  * the others get `null` with reason "conflict".
  */
 export function matchWindows(
   windows: readonly LiveWindow[],
   workspaces: ReadonlyArray<MatchWorkspace>,
-  opts: { placeholderBase: string; directSchemes?: readonly string[] },
+  opts: { placeholderBase: string; directSchemes?: readonly string[]; ownOrigin?: string },
 ): WindowMatch[] {
   const wsUrlSets = workspaces.map(
     (w) => new Set(w.tabs.tabs.map((t) => normalizeForMatch(t.url))),
   );
   const proposals = windows
     .filter((w) => w.tabs.length > 0)
-    .map((w) => propose(w, workspaces, wsUrlSets, opts.placeholderBase, opts.directSchemes));
+    .map((w) =>
+      propose(w, workspaces, wsUrlSets, opts.placeholderBase, opts.directSchemes, opts.ownOrigin),
+    );
 
   const winner = new Map<WorkspaceId, Proposal>();
   for (const p of proposals) {

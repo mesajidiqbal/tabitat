@@ -331,6 +331,36 @@ describe("planSwitch — blank tabs", () => {
     expect(plan.outgoingSnapshot?.tabs.map((t) => t.url)).toEqual(["https://a.com"]);
   });
 
+  it("records which SavedTab each outgoing tab was saved as (blank tabs have none)", () => {
+    const window = liveWindow([
+      { id: 2, url: "https://a.com" },
+      { id: 3, url: "about:blank" },
+      { id: 4, url: "about:blank", pendingUrl: "https://pending.com/" },
+    ]);
+    const fromTabs = workspaceTabs([savedTab({ id: "sa", url: "https://a.com" })]);
+    const plan = planSwitch(input({ window, fromTabs }));
+    expect(plan.op.outgoingTabIds).toEqual([2, 3, 4]);
+    const ids = plan.op.outgoingSavedIds ?? {};
+    expect(ids[2]).toBe("sa");
+    expect(ids[3]).toBeUndefined();
+    const pending = plan.outgoingSnapshot?.tabs.find((t) => t.url === "https://pending.com/");
+    expect(ids[4]).toBe(pending?.id);
+  });
+
+  it("our own extension pages are saved and restored directly with ownOrigin", () => {
+    const own = "chrome-extension://abcdefghijklmnop/";
+    const window = liveWindow([{ id: 2, url: `${own}dashboard.html` }]);
+    const toTabs = workspaceTabs([savedTab({ id: "o", url: `${own}options.html` })]);
+    const plan = planSwitch(input({ window, toTabs, ownOrigin: own }));
+    expect(plan.retainedTabIds).toEqual([]);
+    expect(plan.outgoingSnapshot?.tabs.map((t) => t.url)).toEqual([`${own}dashboard.html`]);
+    expect(specs(plan)[0]).toMatchObject({ mode: "direct", url: `${own}options.html` });
+    // without ownOrigin they are retained / skipped as before
+    const legacy = planSwitch(input({ window, toTabs }));
+    expect(legacy.retainedTabIds).toEqual([2]);
+    expect(legacy.opening.skipped.map((t) => t.id)).toEqual(["o"]);
+  });
+
   it("a window holding only a new-tab page is replaced by the incoming workspace", () => {
     const window = liveWindow([{ id: 7, url: "chrome://newtab/", active: true }]);
     const plan = planSwitch(input({ window, from: null }));

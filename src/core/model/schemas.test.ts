@@ -173,7 +173,13 @@ describe("SchemaError", () => {
 });
 
 describe("URL policy", () => {
-  const bad = ["javascript:alert(1)", "data:text/html,x", "vbscript:x", "chrome-extension://a/b"];
+  const bad = [
+    "javascript:alert(1)",
+    "data:text/html,x",
+    "vbscript:x",
+    "blob:https://a.com/x",
+    "filesystem:https://a.com/x",
+  ];
   const good = [
     "https://a.com",
     "http://a.com",
@@ -185,6 +191,7 @@ describe("URL policy", () => {
     "about:blank",
     "vivaldi://x",
     "opera://x",
+    "chrome-extension://a/b",
   ];
   it.each(good)("accepts %s", (url) => {
     expect(S.isSavedTab({ ...tab, url })).toBe(true);
@@ -196,9 +203,49 @@ describe("URL policy", () => {
     expect(S.isSavedLink({ ...link, url })).toBe(false);
     expect(S.isQuickLink({ id: "q", url, title: "", order: 0 })).toBe(false);
   });
-  it("ClosedTab only rejects dangerous schemes", () => {
-    const c = { id: "c", url: "javascript:x", title: "", closedAt: NOW };
-    expect(S.isClosedTab(c)).toBe(false);
+  it("ClosedTab uses the same restorable-scheme policy as SavedTab", () => {
+    for (const url of bad) {
+      expect(S.isClosedTab({ id: "c", url, title: "", closedAt: NOW })).toBe(false);
+    }
+    expect(S.isClosedTab({ id: "c", url: "https://a.com", title: "", closedAt: NOW })).toBe(true);
+  });
+  it("favicons use the snapshot allowlist (no data:/blob:)", () => {
+    for (const favIconUrl of ["data:image/png;base64,AA", "blob:https://a/x", "javascript:x"]) {
+      expect(S.isSavedTab({ ...tab, favIconUrl })).toBe(false);
+      expect(
+        S.isClosedTab({ id: "c", url: "https://a", title: "", closedAt: NOW, favIconUrl }),
+      ).toBe(false);
+    }
+    expect(S.isSavedTab({ ...tab, favIconUrl: "chrome://favicon/x" })).toBe(true);
+  });
+});
+
+describe("ids", () => {
+  it.each(["", "a b", "x/y", "é", "a".repeat(65), "__proto__"])("rejects id %j", (id) => {
+    expect(S.isSavedTab({ ...tab, id })).toBe(false);
+    expect(S.isWorkspaceMeta({ ...meta, id })).toBe(false);
+    expect(() => S.parseWorkspaceIndex([id])).toThrow(S.SchemaError);
+  });
+  it.each(["a", "A-b_9", "constructor", "a".repeat(64)])("accepts id %j", (id) => {
+    expect(S.isSavedTab({ ...tab, id })).toBe(true);
+  });
+  it("saved tab ids are unique within a workspace", () => {
+    const t2 = { ...tab, url: "https://other.example/" };
+    expect(S.isWorkspaceTabs({ ...tabs, tabs: [tab, t2] })).toBe(false);
+    expect(S.isWorkspaceTabs({ ...tabs, tabs: [tab, { ...t2, id: "t2" }] })).toBe(true);
+  });
+  it("link ids are unique within a workspace, index ids unique", () => {
+    expect(S.isWorkspaceMeta({ ...meta, resources: [link, { ...link, url: "https://b" }] })).toBe(
+      false,
+    );
+    expect(() => S.parseWorkspaceIndex(["a", "b", "a"])).toThrow(/unique/);
+  });
+  it("op incoming ids are unique; outgoingSavedIds keys are tab ids", () => {
+    expect(S.isSwitchOp({ ...op, incoming: [tab, tab] })).toBe(false);
+    expect(S.parseSwitchOp({ ...op, outgoingSavedIds: { 1: "t1" } }).outgoingSavedIds).toEqual({
+      1: "t1",
+    });
+    expect(S.isSwitchOp({ ...op, outgoingSavedIds: { x: "t1" } })).toBe(false);
   });
   it("SwitchOp keeps unrestorable tabs in skipped", () => {
     expect(S.parseSwitchOp(op).skipped[0]?.url).toBe("chrome-extension://abc/x.html");

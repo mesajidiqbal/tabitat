@@ -71,8 +71,21 @@ export interface WorkspaceTabs {
 
 export interface WindowState {
   activeWorkspaceId: WorkspaceId | null;
-  /** Random id generated at each service-worker-observed browser start; used to detect stale window ids. */
+  /**
+   * Random id stored in storage.session. A missing value means "worker context reset" (browser
+   * restart, extension reload/update/disable): window ids are then verified against the live
+   * windows, never trusted on the epoch alone.
+   */
   sessionEpoch: string;
+  /**
+   * Set by startup reconciliation when the window was matched to its workspace heuristically
+   * (placeholder hint or URL similarity). While set, the workspace's pre-reconciliation tabs are
+   * kept under `ws:prev:<id>`. Cleared by the first user-initiated switch or after
+   * PROVISIONAL_MS of tracking.
+   */
+  provisional?: boolean;
+  /** When `provisional` was set (ms epoch). */
+  provisionalAt?: number;
 }
 
 export type SwitchStage = "snapshot" | "opening" | "activating" | "closing" | "done";
@@ -87,6 +100,12 @@ export interface SwitchOp {
   sessionEpoch: string;
   /** Real tab ids of the outgoing (non-pinned) tabs captured at snapshot. */
   outgoingTabIds: number[];
+  /**
+   * Outgoing tab id -> id of the SavedTab it was saved as in `ws:tabs:<from>`. Used by the
+   * closing stage to revalidate each tab against its saved entry before removing it.
+   * Absent for ops written before this field existed (and for blank tabs, which are not saved).
+   */
+  outgoingSavedIds?: Record<number, string>;
   /** Map savedTabId -> created tab id, filled during "opening". */
   createdTabIds: Record<SavedTabId, number>;
   /** Frozen copy of the target tabs at op start. */
@@ -218,6 +237,8 @@ export const Keys = {
   wsIndex: "ws:index",
   wsMeta: (id: WorkspaceId) => `ws:meta:${id}` as const,
   wsTabs: (id: WorkspaceId) => `ws:tabs:${id}` as const,
+  /** One-deep previous version of ws:tabs:<id>, kept while a window's match is provisional. */
+  wsPrev: (id: WorkspaceId) => `ws:prev:${id}` as const,
   window: (windowId: number) => `windows:${windowId}` as const,
   opSwitch: (windowId: number) => `op:switch:${windowId}` as const,
   dirty: (windowId: number) => `dirty:${windowId}` as const,
@@ -237,6 +258,7 @@ export const Keys = {
 export const KEY_PREFIX = {
   wsMeta: "ws:meta:",
   wsTabs: "ws:tabs:",
+  wsPrev: "ws:prev:",
   window: "windows:",
   opSwitch: "op:switch:",
   dirty: "dirty:",
@@ -251,6 +273,15 @@ export const LIMITS = {
   trashRetentionMs: 30 * 24 * 60 * 60 * 1000,
   restoreChunk: 10,
 } as const;
+
+/** How long a heuristically reconciled window stays provisional (WindowState.provisional). */
+export const PROVISIONAL_MS = 10 * 60 * 1000;
+
+/** `ws:prev:<id>`: the workspace's saved tabs as they were when a provisional match was made. */
+export interface WorkspacePrev {
+  tabs: WorkspaceTabs;
+  savedAt: number;
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",

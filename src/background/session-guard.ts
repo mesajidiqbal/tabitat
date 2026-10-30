@@ -48,8 +48,26 @@ export class SessionGuard {
     return run;
   }
 
+  /**
+   * A generation built purely from storage: every workspace's saved tabs as they are
+   * (windowId 0). Written before reconciliation assigns windows heuristically, so the
+   * pre-reconciliation state stays recoverable. Always written (forced) unless all are empty.
+   */
+  takeFromStorage(): Promise<number | null> {
+    const run = this.chain.then(async () => {
+      const genWindows: SessionWindow[] = (await this.ctx.repo.listWorkspaces()).map((w) => ({
+        windowId: 0,
+        workspaceId: w.meta.id,
+        tabs: w.tabs.tabs,
+      }));
+      return this.write(genWindows, true);
+    });
+    this.chain = run.catch(() => {});
+    return run;
+  }
+
   private async takeNow(force: boolean): Promise<number | null> {
-    const { repo, ports } = this.ctx;
+    const { repo } = this.ctx;
     const windows = await this.ctx.getAllWindows();
     const states = await repo.listWindowStates();
     const opts = this.ctx.snapshotOptions();
@@ -58,6 +76,11 @@ export class SessionGuard {
       workspaceId: states.get(w.id)?.activeWorkspaceId ?? null,
       tabs: snapshotWindow(w, null, opts).tabs,
     }));
+    return this.write(genWindows, force);
+  }
+
+  private async write(genWindows: SessionWindow[], force: boolean): Promise<number | null> {
+    const { repo, ports } = this.ctx;
     // Never record an all-empty state (it would push a useful generation out of the ring).
     if (genWindows.every((w) => w.tabs.length === 0)) return null;
     const index = await repo.getSessionsIndex();
@@ -117,6 +140,7 @@ export class SessionGuard {
           restoreLimit: Number.MAX_SAFE_INTEGER,
           placeholderBase: this.ctx.placeholderBase,
           directSchemes: this.ctx.directSchemes,
+          ownOrigin: this.ctx.ownOrigin,
         });
         const created = new Map<string, number>();
         for (const chunk of plan.chunks) {

@@ -274,4 +274,77 @@ describe("TabTracker", () => {
     expect(h.svc.tracker.isDirty(h.w)).toBe(true);
     h.svc.tracker.stop();
   });
+
+  it("window closed within the debounce window: the new URL is saved (review bug 2 / C)", async () => {
+    const h = await named(["https://a.example/", "https://b.example/"]);
+    const b = h.fake.tabsOf(h.w)[1]?.id as number;
+    h.fake.navigate(b, "https://b.example/new", "New");
+    h.fake.openTab(h.w, "https://c.example/");
+    await tick(10); // marked dirty, the 750 ms debounce has not fired
+    expect(tabsOf(h, h.wsId)).toEqual(["https://a.example/", "https://b.example/"]);
+    h.fake.closeWindow(h.w);
+    await tick(0);
+    expect(tabsOf(h, h.wsId)).toEqual([
+      "https://a.example/",
+      "https://b.example/new",
+      "https://c.example/",
+    ]);
+    expect(stored(h.fake, Keys.window(h.w))).toBeUndefined();
+    expect(stored(h.fake, Keys.dirty(h.w))).toBeUndefined();
+    await tick(1000); // the cancelled debounce does not resurrect anything
+    expect(tabsOf(h, h.wsId)).toHaveLength(3);
+  });
+
+  it("the last-known copy survives a worker restart (storage.session) for a window close", async () => {
+    const h = await named(["https://a.example/", "https://b.example/"]);
+    const b = h.fake.tabsOf(h.w)[1]?.id as number;
+    h.fake.navigate(b, "https://b.example/new");
+    await tick(10);
+    await h.svc.tracker.lkSettled();
+    // the worker dies before its debounce fires; the window closes while it is dead
+    h.svc.stop();
+    h.fake.killWorker();
+    const svc = (await import("./services")).createServices(h.fake.ports(), { ...h.opts });
+    svc.start();
+    h.fake.closeWindow(h.w);
+    await svc.init();
+    await tick(0);
+    expect(tabsOf(h, h.wsId)).toEqual(["https://a.example/", "https://b.example/new"]);
+  });
+
+  it("an untracked window closed before its first snapshot goes to recently closed + trash", async () => {
+    const h = await setup({ windows: [["https://keep.example/"]] });
+    const w = h.fake.addWindow(["https://x.example/"]);
+    await tick(10); // created and marked dirty, never snapshotted
+    expect(stored(h.fake, Keys.window(w))).toBeUndefined();
+    h.fake.closeWindow(w);
+    await tick(0);
+    expect(stored<ClosedTab[]>(h.fake, Keys.recentlyClosed)?.map((t) => t.url)).toEqual([
+      "https://x.example/",
+    ]);
+    const trash = stored<Trash>(h.fake, Keys.trash);
+    expect(trash?.items[0]).toMatchObject({ kind: "workspace", meta: { kind: "unsorted" } });
+  });
+
+  it("a pending navigation marks the window dirty and is saved as its destination", async () => {
+    const h = await named(["https://a.example/", "about:blank"]);
+    const blank = h.fake.tabsOf(h.w)[1]?.id as number;
+    h.fake.navigate(blank, "https://slow.example/", { commit: false });
+    await tick(0);
+    expect(h.svc.tracker.isDirty(h.w)).toBe(true);
+    await tick(1000);
+    expect(tabsOf(h, h.wsId)).toEqual(["https://a.example/", "https://slow.example/"]);
+  });
+
+  it("placeholders of another workspace still saved there are not absorbed (L)", async () => {
+    const h = await named(["https://a.example/"]);
+    seedWorkspace(h.fake, "B", ["https://b.example/0"]);
+    const base = h.placeholderBase;
+    const ph = (s: string) =>
+      `${base}#u=${encodeURIComponent(`https://b.example/${s}`)}&t=x&w=B&s=${s}`;
+    h.fake.openTab(h.w, ph("B-t0")); // left over from an interrupted switch to B
+    h.fake.openTab(h.w, ph("dragged")); // B no longer has it: it belongs here now
+    await tick(1000);
+    expect(tabsOf(h, h.wsId)).toEqual(["https://a.example/", "https://b.example/dragged"]);
+  });
 });

@@ -5,10 +5,21 @@
  * - closing the last tab of a window closes the window;
  * - storage.session survives a worker kill but not a browser restart.
  *
- * Failure injection: `failNext(op, …)` makes the next matching port call reject.
- * `killWorker()` simulates a service-worker restart: every port handed out before the kill hangs
- * forever (the old worker is gone mid-await) and its event listeners are dropped. Storage and
- * tabs persist; tests then create fresh services from `fake.ports()` and call `ready()` again.
+ * - port results are delivered asynchronously (a microtask after the browser-side effect) and
+ *   events are dispatched asynchronously too, as Chrome does over IPC;
+ * - created tabs start with `url: ""` + `pendingUrl` (status "loading"), mapped like chrome.ts;
+ * - `tabs.get` / `windows.get` resolve null on any failure, like the chrome.ts adapters;
+ * - `tabs.remove` behaves like the chrome.ts port (one id at a time, stale ids ignored);
+ * - grouping a pinned tab throws, like Chrome;
+ * - storage values round-trip through JSON (no Dates/Maps/undefined), like chrome.storage.
+ *
+ * Failure injection: `failNext(op, …)` makes the next matching port call reject before its
+ * effect; `failAfterEffect(op, …)` lets the browser perform it and then kills the worker before
+ * the result is delivered (the effect happened, the caller never learns about it).
+ * `killWorker()` simulates a service-worker restart: every in-flight call of the old worker
+ * rejects, every later call through its ports hangs forever, and its listeners are dropped.
+ * Storage and tabs persist; tests then create fresh services from `fake.ports()`.
+ * `restartBrowser({ keepTabs })` models a (possibly partial) session restore.
  */
 import type { Color } from "../core/model/types";
 import type { LiveGroup, LiveTab, LiveWindow } from "../core/ops/types";
@@ -20,6 +31,7 @@ import type {
   TabChangeInfo,
   TabRemoveInfo,
 } from "./events";
+import { liveTabUrl } from "./tab-url";
 import type { StoragePort } from "./types";
 
 export type FailOp =
@@ -56,12 +68,30 @@ interface FailRule {
   remaining: number;
   when?: (arg: unknown) => boolean;
   error: Error;
+  /** Perform the effect, then kill the worker before the result is delivered. */
+  afterEffect?: boolean;
+}
+
+/** Rejection delivered to the old worker's in-flight calls by killWorker(). */
+export class WorkerKilledError extends Error {
+  override readonly name = "WorkerKilledError";
+  constructor() {
+    super("service worker was killed");
+  }
+}
+
+export interface RestartOptions {
+  /** Which tabs the browser restores (default: all). Windows left without tabs are not restored. */
+  keepTabs?: (tab: LiveTab) => boolean;
 }
 
 interface FakeTab {
   id: number;
   windowId: number;
+  /** Committed URL (Chrome `Tab.url`). */
   url: string;
+  pendingUrl?: string;
+  status?: "loading" | "complete";
   title: string;
   pinned: boolean;
   active: boolean;
@@ -112,6 +142,8 @@ export interface TabInit {
   discarded?: boolean;
   lastAccessed?: number;
   favIconUrl?: string;
+  /** Created by the API: url "" + pendingUrl until committed. */
+  pending?: boolean;
 }
 
 const NEVER = new Promise<never>(() => {});
@@ -127,6 +159,7 @@ export class FakeBrowser {
   private idSeq = 0;
   private rules: FailRule[] = [];
   private listeners: Listener[] = [];
+  private inflight = new Set<{ reject: (e: Error) => void }>();
   private order = new Map<number, number[]>();
   private tabMap = new Map<number, FakeTab>();
   private groupMap = new Map<number, FakeGroup>();
@@ -157,35 +190,66 @@ export class FakeBrowser {
     this.rules.push(rule);
   }
 
+  /**
+   * The next matching call performs its browser-side effect, then the worker dies before the
+   * result reaches it (e.g. `tabs.create` made the tab; the worker never recorded its id).
+   */
+  failAfterEffect(op: FailOp, opts: Omit<FailOptions, "error"> = {}): void {
+    const rule: FailRule = {
+      op,
+      remaining: opts.times ?? 1,
+      error: new WorkerKilledError(),
+      afterEffect: true,
+    };
+    if (opts.when) rule.when = opts.when;
+    this.rules.push(rule);
+  }
+
   clearFailures(): void {
     this.rules = [];
   }
 
-  /** Simulates a service-worker restart: old ports hang, old listeners are dropped. */
+  /**
+   * Simulates a service-worker restart: in-flight calls of the old worker reject (its
+   * continuations stop), later calls through old ports hang, old listeners are dropped.
+   */
   killWorker(): void {
     this.gen++;
     this.listeners = this.listeners.filter((l) => l.gen === this.gen);
+    const inflight = [...this.inflight];
+    this.inflight.clear();
+    for (const entry of inflight) entry.reject(new WorkerKilledError());
+  }
+
+  /** Alias of restartBrowser (partial restore via `keepTabs`). */
+  restart(opts: RestartOptions = {}): void {
+    this.restartBrowser(opts);
   }
 
   /**
    * Simulates a browser restart: worker killed, storage.session cleared, alarms cleared, every
-   * window/tab/group gets a new id (tabs keep their URLs, as session restore does).
+   * window/tab/group gets a new id (tabs keep their URLs, as session restore does). With
+   * `keepTabs`, only matching tabs are restored (partial restore).
    */
-  restartBrowser(): void {
+  restartBrowser(opts: RestartOptions = {}): void {
     this.killWorker();
     this.session.clear();
     this.alarms.clear();
     const oldOrder = [...this.order.entries()];
     const oldTabs = this.tabMap;
     const oldGroups = this.groupMap;
+    const keep = opts.keepTabs;
+    const keepOld = (t: FakeTab) => (keep ? keep(this.liveOf(t, oldOrder)) : true);
     this.order = new Map();
     this.tabMap = new Map();
     this.groupMap = new Map();
     const groupIdMap = new Map<number, number>();
     for (const [, win] of oldOrder) {
+      const kept = win.filter((id) => keepOld(oldTabs.get(id) as FakeTab));
+      if (kept.length === 0) continue;
       const wid = this.nextWindow++;
       const ids: number[] = [];
-      for (const oldId of win) {
+      for (const oldId of kept) {
         const t = oldTabs.get(oldId) as FakeTab;
         let groupId = -1;
         if (t.groupId !== -1) {
@@ -247,12 +311,69 @@ export class FakeBrowser {
     this.emit("windowRemoved", windowId);
   }
 
-  navigate(tabId: number, url: string, title = url): void {
+  /**
+   * User navigation. By default it commits at once (url + title). With `{ commit: false }` it
+   * stays pending: the committed url is unchanged, `pendingUrl` holds the target and the tab is
+   * "loading" (Chrome's behaviour for a slow navigation); `commitNavigation` finishes it.
+   */
+  navigate(
+    tabId: number,
+    url: string,
+    opts: string | { commit?: boolean; title?: string } = {},
+  ): void {
     const t = this.tabMap.get(tabId);
     if (!t) throw new Error(`No tab with id: ${tabId}.`);
+    const o = typeof opts === "string" ? { title: opts } : opts;
+    if (o.commit === false) {
+      t.pendingUrl = url;
+      t.status = "loading";
+      this.emit("tabUpdated", tabId, { status: "loading" } satisfies TabChangeInfo, this.live(t));
+      return;
+    }
+    const title = o.title ?? url;
     t.url = url;
     t.title = title;
+    delete t.pendingUrl;
+    t.status = "complete";
     this.emit("tabUpdated", tabId, { url, title } satisfies TabChangeInfo, this.live(t));
+  }
+
+  /** Commits a pending navigation (see navigate with commit:false). */
+  commitNavigation(tabId: number, title?: string): void {
+    const t = this.tabMap.get(tabId);
+    if (!t?.pendingUrl) return;
+    this.navigate(tabId, t.pendingUrl, title === undefined ? {} : { title });
+  }
+
+  /** User drags a tab into another window (tabs.onDetached + tabs.onAttached). */
+  moveTab(tabId: number, windowId: number, index?: number): void {
+    const t = this.tabMap.get(tabId);
+    if (!t) throw new Error(`No tab with id: ${tabId}.`);
+    const to = this.order.get(windowId);
+    if (!to) throw new Error(`No window with id: ${windowId}.`);
+    const fromWin = t.windowId;
+    const from = this.order.get(fromWin) as number[];
+    from.splice(from.indexOf(tabId), 1);
+    t.windowId = windowId;
+    t.groupId = -1;
+    t.active = false;
+    to.splice(index === undefined ? to.length : Math.min(index, to.length), 0, tabId);
+    this.pruneGroups();
+    this.emit("tabDetached", tabId, { oldWindowId: fromWin });
+    this.emit("tabAttached", tabId, { newWindowId: windowId });
+    if (from.length === 0) {
+      this.order.delete(fromWin);
+      this.emit("windowRemoved", fromWin);
+    }
+  }
+
+  /** User pins/unpins a tab. */
+  setPinned(tabId: number, pinned: boolean): void {
+    const t = this.tabMap.get(tabId);
+    if (!t) throw new Error(`No tab with id: ${tabId}.`);
+    t.pinned = pinned;
+    if (pinned) t.groupId = -1;
+    this.emit("tabUpdated", tabId, { pinned } satisfies TabChangeInfo, this.live(t));
   }
 
   activate(tabId: number): void {
@@ -271,7 +392,7 @@ export class FakeBrowser {
   }
 
   fireCommand(command: string, tab?: CommandTab): void {
-    this.emit("command", command, tab);
+    this.emitSync("command", command, tab);
   }
 
   // ------------------------------------------------------------------ inspection
@@ -311,13 +432,34 @@ export class FakeBrowser {
     const gate = <T>(op: FailOp | null, arg: unknown, fn: () => T): Promise<T> => {
       if (g !== this.gen) return NEVER;
       if (op) this.calls.push(op);
+      let value: T;
       try {
         if (op) this.maybeFail(op, arg);
-        return Promise.resolve(fn());
+        value = fn();
       } catch (e) {
         return Promise.reject(e);
       }
+      if (op && this.takeAfterEffect(op, arg)) {
+        // The browser did it; the worker dies before it hears back.
+        this.killWorker();
+        return Promise.reject(new WorkerKilledError());
+      }
+      // Delivered asynchronously; a killWorker() before delivery rejects it instead.
+      return new Promise<T>((resolve, reject) => {
+        const entry = { reject };
+        this.inflight.add(entry);
+        queueMicrotask(() => {
+          if (!this.inflight.delete(entry)) return;
+          resolve(value);
+        });
+      });
     };
+    /** chrome.ts adapters resolve null on any failure for get(). */
+    const orNull = <T>(p: Promise<T | null>): Promise<T | null> =>
+      p.catch((e: unknown) => {
+        if (e instanceof WorkerKilledError) throw e;
+        return null;
+      });
     const storage = (area: "local" | "session"): StoragePort => {
       const map = area === "local" ? this.local : this.session;
       const pfx = area === "local" ? "storage" : "session";
@@ -414,13 +556,13 @@ export class FakeBrowser {
                   (filter.audible === undefined || t.audible === filter.audible),
               ),
           ),
-        get: (tabId) => gate("tabs.get", tabId, () => this.tab(tabId)),
+        get: (tabId) => orNull(gate("tabs.get", tabId, () => this.tab(tabId))),
         create: (spec) =>
           gate("tabs.create", spec, () => {
             if (!this.order.has(spec.windowId)) {
               throw new Error(`No window with id: ${spec.windowId}.`);
             }
-            const init: TabInit = { url: spec.url, title: "" };
+            const init: TabInit = { url: spec.url, title: "", pending: true };
             if (spec.pinned) init.pinned = true;
             const t = this.insertTab(spec.windowId, init, spec.index, true);
             if (spec.active) this.activate(t.id);
@@ -428,13 +570,9 @@ export class FakeBrowser {
           }),
         remove: (tabIds) =>
           gate("tabs.remove", tabIds, () => {
-            // Chrome (spike S7): valid ids are removed, then the call rejects on the stale one.
-            let stale: number | null = null;
-            for (const id of tabIds) {
-              if (this.tabMap.has(id)) this.removeTab(id);
-              else if (stale === null) stale = id;
-            }
-            if (stale !== null) throw new Error(`No tab with id: ${stale}.`);
+            // Like the chrome.ts port: one id at a time, a stale id counts as removed (raw
+            // chrome.tabs.remove rejects on it after removing the valid ones: spike S7).
+            for (const id of tabIds) if (this.tabMap.has(id)) this.removeTab(id);
           }),
         update: (tabId, props) =>
           gate("tabs.update", { tabId, ...props }, () => {
@@ -442,6 +580,8 @@ export class FakeBrowser {
             if (!t) throw new Error(`No tab with id: ${tabId}.`);
             if (props.url !== undefined) {
               t.url = props.url;
+              delete t.pendingUrl;
+              t.status = "complete";
               this.emit("tabUpdated", tabId, { url: props.url }, this.live(t));
             }
             if (props.pinned !== undefined) {
@@ -470,8 +610,9 @@ export class FakeBrowser {
             for (const tid of tabIds) {
               const t = this.tabMap.get(tid);
               if (!t) throw new Error(`No tab with id: ${tid}.`);
-              t.groupId = id;
+              if (t.pinned) throw new Error("Tabs cannot be both grouped and pinned.");
             }
+            for (const tid of tabIds) (this.tabMap.get(tid) as FakeTab).groupId = id;
             this.pruneGroups();
             this.emitGroup(id);
             return id;
@@ -491,8 +632,10 @@ export class FakeBrowser {
         getAll: () =>
           gate("windows.getAll", null, () => this.windowIds().map((id) => this.liveWindow(id))),
         get: (windowId) =>
-          gate("windows.get", windowId, () =>
-            this.order.has(windowId) ? this.liveWindow(windowId) : null,
+          orNull(
+            gate("windows.get", windowId, () =>
+              this.order.has(windowId) ? this.liveWindow(windowId) : null,
+            ),
           ),
         create: (spec) =>
           gate("windows.create", spec, () => {
@@ -530,9 +673,21 @@ export class FakeBrowser {
 
   // ------------------------------------------------------------------ internals
 
+  private takeAfterEffect(op: FailOp, arg: unknown): boolean {
+    const rule = this.rules.find(
+      (r) =>
+        r.afterEffect && r.op === op && r.remaining > 0 && (r.when === undefined || r.when(arg)),
+    );
+    if (!rule) return false;
+    rule.remaining--;
+    this.rules = this.rules.filter((r) => r.remaining > 0);
+    return true;
+  }
+
   private maybeFail(op: FailOp, arg: unknown): void {
     const rule = this.rules.find(
-      (r) => r.op === op && r.remaining > 0 && (r.when === undefined || r.when(arg)),
+      (r) =>
+        !r.afterEffect && r.op === op && r.remaining > 0 && (r.when === undefined || r.when(arg)),
     );
     if (!rule) return;
     rule.remaining--;
@@ -548,7 +703,25 @@ export class FakeBrowser {
     };
   }
 
+  /**
+   * Events are dispatched asynchronously (Chrome delivers them over IPC), to whichever worker
+   * is alive at delivery time.
+   */
   private emit(event: EventName, ...args: unknown[]): void {
+    const at = this.listeners.filter((l) => l.event === event && l.gen === this.gen);
+    if (at.length === 0) return; // nobody was listening (e.g. before the extension started)
+    queueMicrotask(() => {
+      // The worker that was listening; if it died meanwhile, the event wakes the new one.
+      let targets = at.filter((l) => this.listeners.includes(l));
+      if (targets.length === 0) {
+        targets = this.listeners.filter((l) => l.event === event && l.gen === this.gen);
+      }
+      for (const l of targets) (l.cb as (...a: unknown[]) => void)(...args);
+    });
+  }
+
+  /** Synchronous dispatch: user-gesture events (commands) must run inside the gesture. */
+  private emitSync(event: EventName, ...args: unknown[]): void {
     for (const l of [...this.listeners]) {
       if (l.event !== event || l.gen !== this.gen) continue;
       (l.cb as (...a: unknown[]) => void)(...args);
@@ -560,12 +733,18 @@ export class FakeBrowser {
     if (g) this.emit("groupUpdated", { ...g });
   }
 
+  /** LiveTab of a tab of the pre-restart layout (restartBrowser's keepTabs). */
+  private liveOf(t: FakeTab, layout: Array<[number, number[]]>): LiveTab {
+    const ids = layout.find(([w]) => w === t.windowId)?.[1] ?? [];
+    return { ...this.live(t), index: ids.indexOf(t.id) };
+  }
+
   private live(t: FakeTab): LiveTab {
     const ids = this.order.get(t.windowId) ?? [];
     const out: LiveTab = {
       id: t.id,
       windowId: t.windowId,
-      url: t.url,
+      url: liveTabUrl(t),
       title: t.title,
       index: ids.indexOf(t.id),
       pinned: t.pinned,
@@ -576,6 +755,8 @@ export class FakeBrowser {
     };
     if (t.favIconUrl) out.favIconUrl = t.favIconUrl;
     if (t.lastAccessed !== undefined) out.lastAccessed = t.lastAccessed;
+    if (t.pendingUrl) out.pendingUrl = t.pendingUrl;
+    if (t.status) out.status = t.status;
     return out;
   }
 
@@ -589,7 +770,8 @@ export class FakeBrowser {
     const t: FakeTab = {
       id: this.nextTab++,
       windowId,
-      url: init.url,
+      // Created through the API: nothing committed yet, the target is pending (like Chrome).
+      url: init.pending ? "" : init.url,
       title: init.title ?? init.url,
       pinned: init.pinned ?? false,
       active: false,
@@ -599,6 +781,10 @@ export class FakeBrowser {
       lastAccessed: init.lastAccessed ?? this.clock,
     };
     if (init.favIconUrl) t.favIconUrl = init.favIconUrl;
+    if (init.pending) {
+      t.pendingUrl = init.url;
+      t.status = "loading";
+    }
     this.tabMap.set(t.id, t);
     const pinnedCount = ids.filter((id) => this.tabMap.get(id)?.pinned).length;
     let at = index === undefined ? ids.length : Math.min(Math.max(0, index), ids.length);
@@ -642,6 +828,7 @@ export class FakeBrowser {
   }
 }
 
+/** chrome.storage serializes to JSON: Dates become strings, undefined fields disappear. */
 function clone<T>(v: T): T {
-  return v === undefined ? v : structuredClone(v);
+  return v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T);
 }

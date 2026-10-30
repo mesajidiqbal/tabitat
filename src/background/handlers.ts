@@ -13,7 +13,7 @@ import type {
   WorkspaceMeta,
 } from "../core/model/types";
 import { Keys, LIMITS } from "../core/model/types";
-import { isRestorableUrl, unwrapUrl } from "../core/ops/url";
+import { captureUrl, classifyUrl, isBlankPageUrl, unwrapUrl } from "../core/ops/url";
 import { RpcError } from "../messaging/errors";
 import { PayloadSchemas } from "../messaging/schemas";
 import type { CommandRouter } from "./command-router";
@@ -201,9 +201,10 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
     async (p) => {
       const tab = await ports.tabs.get(p.tabId);
       if (!tab) throw new RpcError("not_found", `tab ${p.tabId} not found`);
-      const url = unwrapUrl(tab.url, ctx.placeholderBase);
-      if (!isRestorableUrl(url))
+      const url = unwrapUrl(captureUrl(tab), ctx.placeholderBase);
+      if (isBlankPageUrl(url) || classifyUrl(url, ctx.classifyOptions()) === "skip") {
         throw new RpcError("invalid", "this tab's address cannot be saved");
+      }
       // Save first, then close (never lose the tab).
       const link = await addLink(p.workspaceId, url, tab.title);
       await removeTabsSafely(ports.tabs, [p.tabId]);
@@ -402,7 +403,12 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
   router.register(
     "system.ping",
     S["system.ping"],
-    async () => ({ epoch: ctx.epoch, ready: true as const }),
+    async () => {
+      const st = s.barrier.state;
+      return st?.degraded
+        ? { epoch: ctx.epoch, ready: true as const, degraded: true, error: st.error }
+        : { epoch: ctx.epoch, ready: true as const };
+    },
     () => [],
   );
 }

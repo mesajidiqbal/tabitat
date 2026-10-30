@@ -1,4 +1,6 @@
 // Framework-free, external script (no inline JS; see CSP, ADR-002).
+import { faviconPageUrl } from "@/core/ops/url";
+
 // Hash params: u = target url, t = title, w = workspace id, s = saved tab id.
 const params = new URLSearchParams(location.hash.slice(1));
 const target = params.get("u") ?? "";
@@ -19,7 +21,8 @@ if (app) {
   icon.width = 32;
   icon.height = 32;
   icon.alt = "";
-  icon.src = `${chrome.runtime.getURL("/_favicon/")}?pageUrl=${encodeURIComponent(target)}&size=32`;
+  // origin + path only: query tokens and fragments never reach the favicon cache
+  icon.src = `${chrome.runtime.getURL("/_favicon/")}?pageUrl=${encodeURIComponent(faviconPageUrl(target))}&size=32`;
   const h1 = document.createElement("h1");
   h1.textContent = title;
   const host = document.createElement("p");

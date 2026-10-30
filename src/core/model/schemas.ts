@@ -3,7 +3,8 @@
  * exactly (checked in schemas.test.ts). Unknown object keys are stripped on parse.
  */
 import * as v from "valibot";
-import { isDangerousUrl, isRestorableUrl } from "../ops/url";
+import { isAllowedFavIconUrl, isRestorableUrl } from "../ops/url";
+import { hasUniqueIds, isValidId } from "./id";
 import type {
   BackupFile,
   ClosedTab,
@@ -21,8 +22,10 @@ import type {
   Todo,
   TodoList,
   Trash,
+  TrashItem,
   WindowState,
   WorkspaceMeta,
+  WorkspacePrev,
   WorkspaceTabs,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./types";
@@ -41,7 +44,13 @@ export class SchemaError extends Error {
 
 // ---------------------------------------------------------------- primitives
 
-const Id = v.pipe(v.string(), v.minLength(1, "must be a non-empty string"));
+/** Record ids: `^[A-Za-z0-9_-]{1,64}$` and never a reserved name (see model/id.ts). */
+export const IdSchema = v.pipe(
+  v.string(),
+  v.minLength(1, "must be a non-empty string"),
+  v.check((id: string) => isValidId(id), "must match ^[A-Za-z0-9_-]{1,64}$ and not be reserved"),
+);
+const Id = IdSchema;
 const Int = v.pipe(v.number(), v.integer());
 const NonNegInt = v.pipe(v.number(), v.integer(), v.minValue(0));
 const PosInt = v.pipe(v.number(), v.integer(), v.minValue(1));
@@ -52,10 +61,14 @@ export const RestorableUrlSchema = v.pipe(
   v.string(),
   v.check(isRestorableUrl, "URL scheme is not allowed"),
 );
-/** Any string except javascript:/data:/vbscript: URLs. */
-const SafeUrlSchema = v.pipe(
+/**
+ * Favicon URLs: the same allowlist snapshot sanitising uses (core/ops/url.ts
+ * isAllowedFavIconUrl), so a sanitised snapshot always validates and an import cannot smuggle in
+ * a scheme the snapshot would have dropped.
+ */
+export const FavIconUrlSchema = v.pipe(
   v.string(),
-  v.check((u) => !isDangerousUrl(u), "URL scheme is not allowed"),
+  v.check((u: string) => isAllowedFavIconUrl(u), "favicon URL scheme is not allowed"),
 );
 
 export const ColorSchema = v.picklist([
@@ -94,7 +107,7 @@ const savedTabEntries = {
   url: RestorableUrlSchema,
   title: v.string(),
   index: NonNegInt,
-  favIconUrl: v.optional(SafeUrlSchema),
+  favIconUrl: v.optional(FavIconUrlSchema),
   group: v.optional(SavedTabGroupSchema),
 };
 
@@ -121,24 +134,41 @@ export const WorkspaceMetaSchema = v.object({
   emoji: v.optional(v.string()),
   kind: v.picklist(["named", "unsorted"]),
   windowHint: v.optional(Int),
-  resources: v.array(SavedLinkSchema),
+  resources: v.pipe(
+    v.array(SavedLinkSchema),
+    v.check((l: SavedLink[]) => hasUniqueIds(l), "link ids must be unique within a workspace"),
+  ),
   createdAt: Timestamp,
   updatedAt: Timestamp,
   rev: NonNegInt,
 });
 
 export const WorkspaceTabsSchema = v.object({
-  tabs: v.array(SavedTabSchema),
+  tabs: v.pipe(
+    v.array(SavedTabSchema),
+    v.check((t: SavedTab[]) => hasUniqueIds(t), "saved tab ids must be unique within a workspace"),
+  ),
   activeSavedTabId: v.optional(v.string()),
   updatedAt: Timestamp,
   rev: NonNegInt,
 });
 
-export const WorkspaceIndexSchema = v.array(Id);
+export const WorkspaceIndexSchema = v.pipe(
+  v.array(Id),
+  v.check((ids) => new Set(ids).size === ids.length, "workspace ids must be unique"),
+);
 
 export const WindowStateSchema = v.object({
   activeWorkspaceId: v.nullable(Id),
   sessionEpoch: v.string(),
+  provisional: v.optional(v.boolean()),
+  provisionalAt: v.optional(Timestamp),
+});
+
+/** `ws:prev:<id>` (one-deep previous tabs of a provisionally matched workspace). */
+export const WorkspacePrevSchema = v.object({
+  tabs: WorkspaceTabsSchema,
+  savedAt: Timestamp,
 });
 
 export const SwitchOpSchema = v.object({
@@ -149,8 +179,17 @@ export const SwitchOpSchema = v.object({
   stage: v.picklist(["snapshot", "opening", "activating", "closing", "done"]),
   sessionEpoch: v.string(),
   outgoingTabIds: v.array(Int),
+  outgoingSavedIds: v.optional(
+    v.pipe(
+      v.record(v.pipe(v.string(), v.regex(/^-?\d+$/, "keys must be tab ids")), v.string()),
+      v.transform((r) => r as Record<number, string>),
+    ),
+  ),
   createdTabIds: v.record(v.string(), Int),
-  incoming: v.array(OpSavedTabSchema),
+  incoming: v.pipe(
+    v.array(OpSavedTabSchema),
+    v.check((t: SavedTab[]) => hasUniqueIds(t), "incoming saved tab ids must be unique"),
+  ),
   activeSavedTabId: v.optional(v.string()),
   skipped: v.array(OpSavedTabSchema),
   startedAt: Timestamp,
@@ -186,9 +225,9 @@ export const SessionGenerationSchema = v.object({
 
 export const ClosedTabSchema = v.object({
   id: Id,
-  url: SafeUrlSchema,
+  url: RestorableUrlSchema,
   title: v.string(),
-  favIconUrl: v.optional(SafeUrlSchema),
+  favIconUrl: v.optional(FavIconUrlSchema),
   closedAt: Timestamp,
   workspaceId: v.optional(Id),
 });
@@ -352,6 +391,8 @@ export const parseWorkspaceIndex = (input: unknown): string[] =>
   parseWith("WorkspaceIndex", WorkspaceIndexSchema, input);
 export const parseWindowState = (input: unknown): WindowState =>
   parseWith("WindowState", WindowStateSchema, input);
+export const parseWorkspacePrev = (input: unknown): WorkspacePrev =>
+  parseWith("WorkspacePrev", WorkspacePrevSchema, input);
 export const parseSwitchOp = (input: unknown): SwitchOp =>
   parseWith("SwitchOp", SwitchOpSchema, input);
 export const parseSessionsIndex = (input: unknown): number[] =>
@@ -399,6 +440,7 @@ export const isQuickLink = (input: unknown): input is QuickLink => v.is(QuickLin
 export const isTodo = (input: unknown): input is Todo => v.is(TodoSchema, input);
 export const isQuickLinks = (input: unknown): input is QuickLinks => v.is(QuickLinksSchema, input);
 export const isTrash = (input: unknown): input is Trash => v.is(TrashSchema, input);
+export const isTrashItem = (input: unknown): input is TrashItem => v.is(TrashItemSchema, input);
 /** Note: Settings fills defaults, so a partial object is "valid" for parseSettings but not here. */
 export const isSettings = (input: unknown): input is Settings =>
   v.is(SettingsSchema, input) && hasAllKeys(input, DEFAULT_SETTINGS);
@@ -415,5 +457,7 @@ function isPlainObject(x: unknown): x is Record<string, unknown> {
 function hasAllKeys(input: unknown, shape: unknown): boolean {
   if (!isPlainObject(shape)) return true;
   if (!isPlainObject(input)) return false;
-  return Object.entries(shape).every(([k, sub]) => k in input && hasAllKeys(input[k], sub));
+  return Object.entries(shape).every(
+    ([k, sub]) => Object.hasOwn(input, k) && hasAllKeys(input[k], sub),
+  );
 }

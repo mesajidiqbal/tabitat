@@ -6,6 +6,7 @@ import type { Color } from "../core/model/types";
 import type { LiveGroup, LiveTab, LiveWindow } from "../core/ops/types";
 import { isNoTabError } from "./errors";
 import type { BgPorts, EventsPort, ShellPort, TabChangeInfo } from "./events";
+import { liveTabUrl } from "./tab-url";
 import type { AlarmsPort, Ports, RuntimePort, StoragePort, TabsPort, WindowsPort } from "./types";
 
 export function toLiveTab(tab: chrome.tabs.Tab): LiveTab | null {
@@ -13,7 +14,8 @@ export function toLiveTab(tab: chrome.tabs.Tab): LiveTab | null {
   const out: LiveTab = {
     id: tab.id,
     windowId: tab.windowId,
-    url: tab.url ?? tab.pendingUrl ?? "",
+    // `url || pendingUrl` (not `??`): a new tab's url is "" until its navigation commits.
+    url: liveTabUrl(tab),
     title: tab.title ?? "",
     index: tab.index,
     pinned: tab.pinned,
@@ -24,6 +26,8 @@ export function toLiveTab(tab: chrome.tabs.Tab): LiveTab | null {
   };
   if (tab.favIconUrl) out.favIconUrl = tab.favIconUrl;
   if (typeof tab.lastAccessed === "number") out.lastAccessed = tab.lastAccessed;
+  if (tab.pendingUrl) out.pendingUrl = tab.pendingUrl;
+  if (tab.status === "loading" || tab.status === "complete") out.status = tab.status;
   return out;
 }
 

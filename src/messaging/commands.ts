@@ -79,7 +79,11 @@ export interface Commands {
   "pomodoro.stop": { in: Record<string, never>; out: null };
   "pomodoro.skip": { in: Record<string, never>; out: PomodoroState | null };
   "op.status": { in: { windowId: number }; out: SwitchOp | null };
-  "system.ping": { in: Record<string, never>; out: { epoch: string; ready: true } };
+  "system.ping": {
+    in: Record<string, never>;
+    /** `degraded`: init failed (read-only mode, retried on the next message); `error` says why. */
+    out: { epoch: string; ready: true; degraded?: boolean; error?: string };
+  };
 }
 
 export type CommandType = keyof Commands;

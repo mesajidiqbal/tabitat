@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { BASE, rng } from "../testing/fixtures";
 import {
   buildPlaceholderUrl,
+  captureUrl,
   classifyUrl,
+  faviconPageUrl,
   hostOf,
+  isAllowedFavIconUrl,
   isBlankPageUrl,
   isDangerousUrl,
   isPlaceholderUrl,
@@ -64,7 +67,59 @@ describe("classifyUrl", () => {
       expect(isRestorableUrl(u)).toBe(true);
     }
     expect(isRestorableUrl("javascript:void(0)")).toBe(false);
-    expect(isRestorableUrl("chrome-extension://a/b")).toBe(false);
+    // extension pages are storable (our own pages are saved); restore decides via ownOrigin
+    expect(isRestorableUrl("chrome-extension://a/b")).toBe(true);
+    for (const u of ["blob:https://a.com/x", "filesystem:https://a.com/x", "data:text/html,x"]) {
+      expect(isRestorableUrl(u)).toBe(false);
+    }
+  });
+
+  it("ownOrigin: our own pages classify direct, other extensions and the placeholder skip", () => {
+    const own = "chrome-extension://me/";
+    expect(classifyUrl("chrome-extension://me/dashboard.html#x", { ownOrigin: own })).toBe(
+      "direct",
+    );
+    expect(classifyUrl("chrome-extension://me/options.html", { ownOrigin: own })).toBe("direct");
+    expect(classifyUrl("chrome-extension://me/suspended.html#u=x", { ownOrigin: own })).toBe(
+      "skip",
+    );
+    expect(classifyUrl("chrome-extension://me/", { ownOrigin: own })).toBe("skip");
+    expect(classifyUrl("chrome-extension://other/x.html", { ownOrigin: own })).toBe("skip");
+    expect(classifyUrl("chrome-extension://me/dashboard.html")).toBe("skip");
+    expect(
+      classifyUrl("chrome-extension://me/a.html", { ownOrigin: "chrome-extension://me" }),
+    ).toBe("direct");
+  });
+
+  it("captureUrl prefers a restorable pending URL over a blank committed one", () => {
+    expect(captureUrl({ url: "about:blank", pendingUrl: "https://a.com/x" })).toBe(
+      "https://a.com/x",
+    );
+    expect(captureUrl({ url: "", pendingUrl: "https://a.com/x" })).toBe("https://a.com/x");
+    expect(captureUrl({ url: "chrome://newtab/", pendingUrl: "https://a.com/" })).toBe(
+      "https://a.com/",
+    );
+    expect(captureUrl({ url: "https://b.com/", pendingUrl: "https://a.com/" })).toBe(
+      "https://b.com/",
+    );
+    expect(captureUrl({ url: "about:blank", pendingUrl: "javascript:x" })).toBe("about:blank");
+    expect(captureUrl({ url: "about:blank" })).toBe("about:blank");
+  });
+
+  it("isAllowedFavIconUrl and sanitizeFavIconUrl share one allowlist", () => {
+    for (const u of [
+      "https://a/f.ico",
+      "http://a/f",
+      "chrome://favicon/x",
+      "chrome-extension://a/i",
+    ]) {
+      expect(isAllowedFavIconUrl(u)).toBe(true);
+      expect(sanitizeFavIconUrl(u)).toBe(u);
+    }
+    for (const u of ["data:image/png;base64,AA", "blob:https://a/x", "javascript:x", "", "nope"]) {
+      expect(isAllowedFavIconUrl(u)).toBe(false);
+      expect(sanitizeFavIconUrl(u)).toBeUndefined();
+    }
   });
 
   it("schemeOf", () => {
@@ -233,5 +288,15 @@ describe("normalizeForMatch", () => {
     ["not a url/#x", "not a url"],
   ])("%s -> %s", (input, out) => {
     expect(normalizeForMatch(input)).toBe(out);
+  });
+});
+
+describe("faviconPageUrl", () => {
+  it("strips query and hash (no tokens to the favicon service)", () => {
+    expect(faviconPageUrl("https://a.com/reset?token=SECRET#frag")).toBe("https://a.com/reset");
+    expect(faviconPageUrl("http://user:pw@a.com:8080/p/q?x=1")).toBe("http://a.com:8080/p/q");
+    expect(faviconPageUrl("file:///home/me/doc.html?x")).toBe("file:///home/me/doc.html");
+    expect(faviconPageUrl("javascript:alert(1)")).toBe("");
+    expect(faviconPageUrl("nope")).toBe("");
   });
 });
