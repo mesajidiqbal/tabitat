@@ -1,0 +1,408 @@
+/**
+ * Registers every RPC command (src/messaging/commands.ts) on the CommandRouter, with its payload
+ * schema (src/messaging/schemas.ts), lanes and handler. Record edits check `expectedRev`
+ * (conflict) and bump `rev`; they ack only after storage.local.set resolved.
+ */
+import { parseSettings } from "../core/model/schemas";
+import type {
+  Note,
+  QuickLinks,
+  SavedLink,
+  Settings,
+  TodoList,
+  WorkspaceMeta,
+} from "../core/model/types";
+import { Keys, LIMITS } from "../core/model/types";
+import { isRestorableUrl, unwrapUrl } from "../core/ops/url";
+import { RpcError } from "../messaging/errors";
+import { PayloadSchemas } from "../messaging/schemas";
+import type { CommandRouter } from "./command-router";
+import { Lane } from "./lanes";
+import { repairAlarms } from "./ready";
+import type { Services } from "./services";
+import { removeTabsSafely } from "./tab-utils";
+import { switchLanes } from "./workspace-engine";
+
+function checkRev(current: number, expected: number | undefined, what: string): void {
+  if (expected !== undefined && expected !== current) {
+    throw new RpcError("conflict", `${what} changed (rev ${current}, expected ${expected})`);
+  }
+}
+
+function isPlainObject(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+export async function purgeExpiredTrash(s: Services): Promise<number> {
+  const { repo, ports } = s.ctx;
+  const trash = await repo.getTrash();
+  const cutoff = ports.now() - LIMITS.trashRetentionMs;
+  const keep = trash.items.filter((i) => i.deletedAt >= cutoff);
+  if (keep.length === trash.items.length) return 0;
+  await repo.setMany({ [Keys.trash]: { items: keep } });
+  return trash.items.length - keep.length;
+}
+
+export function registerHandlers(router: CommandRouter, s: Services): void {
+  const { ctx, engine } = s;
+  const { repo, ports } = ctx;
+  const S = PayloadSchemas;
+
+  const metaOrThrow = async (id: string): Promise<WorkspaceMeta> => {
+    const meta = await repo.getWorkspaceMeta(id);
+    if (!meta) throw new RpcError("not_found", `workspace ${id} not found`);
+    return meta;
+  };
+  const scopeOrThrow = async (scope: string): Promise<void> => {
+    if (scope !== "global") await metaOrThrow(scope);
+  };
+
+  // ---------------------------------------------------------------- workspaces
+  router.register(
+    "workspace.create",
+    S["workspace.create"],
+    (p) => engine.createWorkspace(p.name, p.color, p.fromWindowId),
+    (p) =>
+      p.fromWindowId === undefined
+        ? [Lane.wsIndex, Lane.wsMeta]
+        : [Lane.wsIndex, Lane.wsMeta, Lane.window(p.fromWindowId)],
+  );
+
+  router.register(
+    "workspace.update",
+    S["workspace.update"],
+    async (p) => {
+      const meta = await metaOrThrow(p.id);
+      checkRev(meta.rev, p.expectedRev, "workspace");
+      const next: WorkspaceMeta = { ...meta, updatedAt: ports.now(), rev: meta.rev + 1 };
+      if (p.patch.name !== undefined) {
+        next.name = p.patch.name;
+        // Naming an Unsorted workspace makes it a regular one.
+        if (meta.kind === "unsorted") next.kind = "named";
+      }
+      if (p.patch.color !== undefined) next.color = p.patch.color;
+      if (p.patch.emoji !== undefined) {
+        if (p.patch.emoji === "") delete next.emoji;
+        else next.emoji = p.patch.emoji;
+      }
+      await repo.setMany({ [Keys.wsMeta(p.id)]: next });
+      return next;
+    },
+    () => [Lane.wsMeta],
+  );
+
+  router.register(
+    "workspace.reorder",
+    S["workspace.reorder"],
+    async (p) => {
+      const cur = await repo.getWorkspaceIndex();
+      const a = [...cur].sort();
+      const b = [...p.ids].sort();
+      if (a.length !== b.length || a.some((x, i) => x !== b[i])) {
+        throw new RpcError("invalid", "ids must be a permutation of the current workspaces");
+      }
+      await repo.setMany({ [Keys.wsIndex]: p.ids });
+      return null;
+    },
+    () => [Lane.wsIndex],
+  );
+
+  router.register(
+    "workspace.delete",
+    S["workspace.delete"],
+    (p) => engine.deleteWorkspace(p.id),
+    () => [Lane.wsIndex, Lane.wsMeta, Lane.trash],
+  );
+
+  router.register(
+    "workspace.switch",
+    S["workspace.switch"],
+    (p) => engine.switchWorkspace(p.windowId, p.workspaceId),
+    (p) => switchLanes(p.windowId),
+    { exclusive: (p) => `switch:${p.windowId}` },
+  );
+
+  router.register(
+    "workspace.open",
+    S["workspace.open"],
+    (p) => engine.openInNewWindow(p.workspaceId),
+    () => [Lane.wsIndex, Lane.wsMeta],
+  );
+
+  router.register(
+    "workspace.next",
+    S["workspace.next"],
+    (p) => engine.nextWorkspace(p.windowId, p.direction),
+    (p) => switchLanes(p.windowId),
+    { exclusive: (p) => `switch:${p.windowId}` },
+  );
+
+  // ---------------------------------------------------------------- links
+  const addLink = async (workspaceId: string, url: string, title: string): Promise<SavedLink> => {
+    const meta = await metaOrThrow(workspaceId);
+    const link: SavedLink = {
+      id: ports.newId(),
+      url,
+      title,
+      order: meta.resources.reduce((m, r) => Math.max(m, r.order), -1) + 1,
+      addedAt: ports.now(),
+    };
+    await repo.setMany({
+      [Keys.wsMeta(workspaceId)]: {
+        ...meta,
+        resources: [...meta.resources, link],
+        updatedAt: ports.now(),
+        rev: meta.rev + 1,
+      } satisfies WorkspaceMeta,
+    });
+    return link;
+  };
+
+  router.register(
+    "link.add",
+    S["link.add"],
+    (p) => addLink(p.workspaceId, p.url, p.title),
+    () => [Lane.wsMeta],
+  );
+
+  router.register(
+    "link.remove",
+    S["link.remove"],
+    async (p) => {
+      const meta = await metaOrThrow(p.workspaceId);
+      const link = meta.resources.find((r) => r.id === p.linkId);
+      if (!link) throw new RpcError("not_found", `link ${p.linkId} not found`);
+      const trash = await repo.getTrash();
+      const trashId = ports.newId();
+      trash.items.push({
+        id: trashId,
+        kind: "link",
+        deletedAt: ports.now(),
+        workspaceId: p.workspaceId,
+        link,
+      });
+      await repo.setMany({
+        [Keys.trash]: trash,
+        [Keys.wsMeta(p.workspaceId)]: {
+          ...meta,
+          resources: meta.resources.filter((r) => r.id !== p.linkId),
+          updatedAt: ports.now(),
+          rev: meta.rev + 1,
+        } satisfies WorkspaceMeta,
+      });
+      return { trashId };
+    },
+    () => [Lane.wsMeta, Lane.trash],
+  );
+
+  router.register(
+    "tabs.park",
+    S["tabs.park"],
+    async (p) => {
+      const tab = await ports.tabs.get(p.tabId);
+      if (!tab) throw new RpcError("not_found", `tab ${p.tabId} not found`);
+      const url = unwrapUrl(tab.url, ctx.placeholderBase);
+      if (!isRestorableUrl(url))
+        throw new RpcError("invalid", "this tab's address cannot be saved");
+      // Save first, then close (never lose the tab).
+      const link = await addLink(p.workspaceId, url, tab.title);
+      await removeTabsSafely(ports.tabs, [p.tabId]);
+      return link;
+    },
+    () => [Lane.wsMeta],
+  );
+
+  // ---------------------------------------------------------------- tabs
+  router.register(
+    "tabs.suspendOthers",
+    S["tabs.suspendOthers"],
+    (p) => s.suspender.suspendOthers(p.windowId),
+    (p) => [Lane.window(p.windowId)],
+  );
+
+  router.register(
+    "tabs.closeDuplicates",
+    S["tabs.closeDuplicates"],
+    (p) => s.suspender.closeDuplicates(p.windowId),
+    (p) => (p.windowId === undefined ? ["tabs:all"] : [Lane.window(p.windowId), "tabs:all"]),
+  );
+
+  // ---------------------------------------------------------------- sessions / backup
+  router.register(
+    "session.restore",
+    S["session.restore"],
+    (p) => s.sessionGuard.restore(p.generation),
+    () => [Lane.sessions],
+  );
+
+  router.register(
+    "session.snapshotNow",
+    S["session.snapshotNow"],
+    async () => {
+      const generation = await s.sessionGuard.take({ force: true });
+      if (generation === null) throw new RpcError("invalid", "no open tabs to snapshot");
+      return { generation };
+    },
+    () => [Lane.sessions],
+  );
+
+  router.register(
+    "backup.export",
+    S["backup.export"],
+    () => s.backup.exportBackup(),
+    () => [Lane.global],
+  );
+
+  router.register(
+    "backup.import",
+    S["backup.import"],
+    (p) => s.backup.importBackup(p.file, p.mode),
+    () => [Lane.global],
+  );
+
+  // ---------------------------------------------------------------- records
+  router.register(
+    "todo.set",
+    S["todo.set"],
+    async (p) => {
+      await scopeOrThrow(p.scope);
+      const cur = await repo.getTodos(p.scope);
+      const rev = cur?.rev ?? 0;
+      checkRev(rev, p.expectedRev, "todos");
+      const next: TodoList = { items: p.items, rev: rev + 1 };
+      await repo.setMany({ [Keys.todos(p.scope)]: next });
+      return { rev: next.rev };
+    },
+    (p) => [Lane.key(Keys.todos(p.scope))],
+  );
+
+  router.register(
+    "note.set",
+    S["note.set"],
+    async (p) => {
+      await scopeOrThrow(p.scope);
+      const cur = await repo.getNote(p.scope);
+      const rev = cur?.rev ?? 0;
+      checkRev(rev, p.expectedRev, "note");
+      const next: Note = { content: p.content, updatedAt: ports.now(), rev: rev + 1 };
+      await repo.setMany({ [Keys.notes(p.scope)]: next });
+      return next;
+    },
+    (p) => [Lane.key(Keys.notes(p.scope))],
+  );
+
+  router.register(
+    "quicklink.set",
+    S["quicklink.set"],
+    async (p) => {
+      const cur = await repo.getQuickLinks();
+      checkRev(cur.rev, p.expectedRev, "quick links");
+      const next: QuickLinks = { items: p.items, rev: cur.rev + 1 };
+      await repo.setMany({ [Keys.quicklinks]: next });
+      return { rev: next.rev };
+    },
+    () => [Lane.key(Keys.quicklinks)],
+  );
+
+  router.register(
+    "settings.update",
+    S["settings.update"],
+    async (p) => {
+      const cur = await repo.getSettings();
+      checkRev(cur.rev, p.expectedRev, "settings");
+      const merged: Record<string, unknown> = { ...cur };
+      for (const [k, val] of Object.entries(p.patch)) {
+        const prev = merged[k];
+        merged[k] = isPlainObject(prev) && isPlainObject(val) ? { ...prev, ...val } : val;
+      }
+      merged.rev = cur.rev + 1;
+      const next: Settings = parseSettings(merged);
+      await repo.setMany({ [Keys.settings]: next });
+      const recreate =
+        next.sessions.everyMinutes !== cur.sessions.everyMinutes ? ["session-gen"] : [];
+      await repairAlarms(ctx, next, recreate).catch((e) => ctx.log.warn(e));
+      return next;
+    },
+    () => [Lane.key(Keys.settings)],
+  );
+
+  // ---------------------------------------------------------------- trash
+  router.register(
+    "trash.restore",
+    S["trash.restore"],
+    async (p) => {
+      const trash = await repo.getTrash();
+      const item = trash.items.find((i) => i.id === p.trashId);
+      if (!item) throw new RpcError("not_found", `trash item ${p.trashId} not found`);
+      const rest = { items: trash.items.filter((i) => i.id !== p.trashId) };
+      if (item.kind === "workspace") {
+        let id = item.meta.id;
+        if (await repo.getWorkspaceMeta(id)) id = ports.newId();
+        const index = await repo.getWorkspaceIndex();
+        const { windowHint: _drop, ...meta } = item.meta;
+        await repo.setMany({
+          [Keys.wsMeta(id)]: { ...meta, id, updatedAt: ports.now(), rev: item.meta.rev + 1 },
+          [Keys.wsTabs(id)]: item.tabs,
+          [Keys.wsIndex]: [...index, id],
+          [Keys.trash]: rest,
+        });
+      } else {
+        const meta = await repo.getWorkspaceMeta(item.workspaceId);
+        if (!meta) throw new RpcError("not_found", "the link's workspace no longer exists");
+        const order = meta.resources.reduce((m, r) => Math.max(m, r.order), -1) + 1;
+        await repo.setMany({
+          [Keys.wsMeta(meta.id)]: {
+            ...meta,
+            resources: [...meta.resources, { ...item.link, order }],
+            updatedAt: ports.now(),
+            rev: meta.rev + 1,
+          } satisfies WorkspaceMeta,
+          [Keys.trash]: rest,
+        });
+      }
+      return null;
+    },
+    () => [Lane.trash, Lane.wsIndex, Lane.wsMeta],
+  );
+
+  router.register(
+    "trash.purge",
+    S["trash.purge"],
+    async (p) => {
+      const trash = await repo.getTrash();
+      if (p.trashId === undefined) {
+        if (trash.items.length > 0) await repo.setMany({ [Keys.trash]: { items: [] } });
+        return trash.items.length;
+      }
+      if (!trash.items.some((i) => i.id === p.trashId)) {
+        throw new RpcError("not_found", `trash item ${p.trashId} not found`);
+      }
+      await repo.setMany({
+        [Keys.trash]: { items: trash.items.filter((i) => i.id !== p.trashId) },
+      });
+      return 1;
+    },
+    () => [Lane.trash],
+  );
+
+  // ---------------------------------------------------------------- pomodoro
+  const pomodoroLane = () => [Lane.key(Keys.pomodoro)];
+  router.register("pomodoro.start", S["pomodoro.start"], () => s.pomodoro.start(), pomodoroLane);
+  router.register("pomodoro.stop", S["pomodoro.stop"], () => s.pomodoro.stop(), pomodoroLane);
+  router.register("pomodoro.skip", S["pomodoro.skip"], () => s.pomodoro.skip(), pomodoroLane);
+
+  // ---------------------------------------------------------------- status
+  router.register(
+    "op.status",
+    S["op.status"],
+    async (p) => engine.status(p.windowId) ?? (await repo.getOp(p.windowId)),
+    () => [],
+  );
+
+  router.register(
+    "system.ping",
+    S["system.ping"],
+    async () => ({ epoch: ctx.epoch, ready: true as const }),
+    () => [],
+  );
+}
