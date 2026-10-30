@@ -10,3 +10,4 @@ coverage/
 docs/reviews/*.stderr.log
 test-results/
 playwright-report/
+.output-newtab/

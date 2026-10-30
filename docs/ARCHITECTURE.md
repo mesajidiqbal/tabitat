@@ -112,7 +112,7 @@ switch (they belong to the window, not the workspace).
   "action": { "default_popup": "popup.html", "default_title": "Tabitat" },
   "side_panel": { "default_path": "sidepanel.html" },
   "options_ui": { "page": "options.html", "open_in_tab": true },
-  // "chrome_url_overrides": { "newtab": "newtab.html" }  ← only in the newtab flavor
+  // "chrome_url_overrides": { "newtab": "dashboard.html" }  ← only in the newtab flavor
   "commands": {
     "open-search":        { "description": "Search tabs and workspaces", "suggested_key": { "default": "Ctrl+Shift+K", "mac": "Command+Shift+K" } },
     "next-workspace":     { "description": "Switch to next workspace",   "suggested_key": { "default": "Ctrl+Shift+Period", "mac": "Command+Shift+Period" } },

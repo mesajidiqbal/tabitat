@@ -1,0 +1,44 @@
+{
+  "name": "tabitat",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Workspaces for your tabs. Local-only, no network.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wxt",
+    "dev:newtab": "TABITAT_FLAVOR=newtab wxt",
+    "build": "wxt build",
+    "build:newtab": "TABITAT_FLAVOR=newtab wxt build",
+    "zip": "wxt zip",
+    "zip:newtab": "TABITAT_FLAVOR=newtab wxt zip",
+    "lint": "biome check . && node scripts/check-core-purity.mjs",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.4",
+    "@playwright/test": "^1.64.1",
+    "@preact/preset-vite": "^2.10.6",
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^24.19.2",
+    "typescript": "~5.9",
+    "vitest": "^5.0.5",
+    "wxt": "^0.21.5"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.11.4",
+    "fuzzysort": "^4.0.2",
+    "idb": "^8.0.4",
+    "preact": "^10.29.8",
+    "valibot": "^1.5.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

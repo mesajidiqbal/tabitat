@@ -5,12 +5,16 @@ Update it at the end of every phase (and at any forced pause).
 
 ## Current checkpoint
 
-- Phase: 0 (architecture / design / tech stack)
-- State: ARCHITECTURE.md drafted; sent for review to Codex (GPT-6) and
-  Gemini (3.8 Flash High via Antigravity CLI). Reviews land in
-  `docs/reviews/phase0-*.md`.
-- Next: fold review feedback into ARCHITECTURE.md + ADRs, then scaffold
-  the repo (WXT + Preact + Biome + Vitest + CI) and tag `phase-0`.
+- Phase: 0 complete → tag `phase-0`.
+- State: ARCHITECTURE.md v1 finalized after Codex + Gemini review
+  (triage in `docs/reviews/phase0-triage.md`, ADR-001…004). Repo
+  scaffolded: WXT 0.21, Preact 10 + signals, valibot, fuzzysort, idb,
+  Biome, Vitest 5, Playwright, CI + release workflows, two build flavors
+  (default / newtab). `npm run check` and both builds are green.
+- Next: Phase 1a browser spike (`docs/SPIKE.md`), then Phase 1 core
+  (schemas, migrations, switch planner, CommandRouter, TabTracker,
+  WorkspaceEngine, Reconciler, SessionGuard, export/import, failure
+  injection tests), then Codex + Gemini review of Phase 1.
 
 ## Review process (every phase)
 
@@ -28,7 +32,8 @@ Update it at the end of every phase (and at any forced pause).
 
 | Phase | Status | Tag | Notes |
 |---|---|---|---|
-| 0 | in progress | — | design doc under review |
+| 0 | done | `phase-0` | design reviewed by Codex + Gemini; scaffold green |
+| 1a | pending | | browser spike |
 | 1 | pending | | |
 | 2 | pending | | |
 | 3 | pending | | |
