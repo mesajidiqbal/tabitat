@@ -836,5 +836,410 @@
   },
   "startEmptyHint": {
     "message": "Create an empty workspace and keep this window's tabs where they are"
+  },
+  "optTitle": {
+    "message": "Tabitat settings"
+  },
+  "optNavLabel": {
+    "message": "Settings sections"
+  },
+  "optGeneral": {
+    "message": "General"
+  },
+  "optSuspension": {
+    "message": "Suspension"
+  },
+  "optSessions": {
+    "message": "Sessions"
+  },
+  "optPomodoro": {
+    "message": "Pomodoro"
+  },
+  "optSync": {
+    "message": "Sync"
+  },
+  "optShortcuts": {
+    "message": "Shortcuts"
+  },
+  "optBookmarks": {
+    "message": "Bookmarks import"
+  },
+  "optData": {
+    "message": "Data"
+  },
+  "optAbout": {
+    "message": "About"
+  },
+  "optSaved": {
+    "message": "Saved"
+  },
+  "optConflict": {
+    "message": "Settings changed elsewhere, reloaded"
+  },
+  "optConfirm": {
+    "message": "Confirm"
+  },
+  "optRange": {
+    "message": "Enter a whole number from $P1$ to $P2$.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "optTheme": {
+    "message": "Theme"
+  },
+  "optThemeSystem": {
+    "message": "System"
+  },
+  "optThemeLight": {
+    "message": "Light"
+  },
+  "optThemeDark": {
+    "message": "Dark"
+  },
+  "optRestoreLimit": {
+    "message": "Restore limit"
+  },
+  "optRestoreLimitHint": {
+    "message": "Tabs opened per switch; the rest are listed as skipped."
+  },
+  "optSuspendEnable": {
+    "message": "Suspend inactive tabs"
+  },
+  "optSuspendCaveat": {
+    "message": "Suspended tabs are discarded from memory and reload when you open them. Tabitat cannot see unsaved form input, so text you typed in a tab and did not submit can be lost. Off by default; 30 minutes is a good start."
+  },
+  "optSuspendAfter": {
+    "message": "Suspend after (minutes)"
+  },
+  "optWhitelist": {
+    "message": "Never suspend these sites"
+  },
+  "optWhitelistHint": {
+    "message": "One host per line. Subdomains are included, so example.com also covers app.example.com."
+  },
+  "optWhitelistBad": {
+    "message": "Line $P1$ is not saved: “$P2$” is not a valid host.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "optWhitelistTooMany": {
+    "message": "Too many sites: the limit is $P1$. Nothing was saved.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optWhitelistEmpty": {
+    "message": "No sites yet."
+  },
+  "optWhitelistChips": {
+    "message": "Sites that are never suspended"
+  },
+  "optSessionsLead": {
+    "message": "Tabitat keeps rolling snapshots of your windows so you can restore them after a crash."
+  },
+  "optSessionsEvery": {
+    "message": "Take a snapshot every (minutes)"
+  },
+  "optSessionsKeep": {
+    "message": "Snapshots to keep"
+  },
+  "optSessionsKeepHint": {
+    "message": "Older snapshots are removed automatically."
+  },
+  "optSnapshotNow": {
+    "message": "Take a snapshot now"
+  },
+  "optOpenRecovery": {
+    "message": "Open the recovery page"
+  },
+  "optWork": {
+    "message": "Work (minutes)"
+  },
+  "optBreak": {
+    "message": "Break (minutes)"
+  },
+  "optLongBreak": {
+    "message": "Long break (minutes)"
+  },
+  "optRounds": {
+    "message": "Rounds before a long break"
+  },
+  "optSyncEnable": {
+    "message": "Sync settings across your browsers"
+  },
+  "optSyncPrivacy": {
+    "message": "Only settings are synced. Tabs, notes and todos never leave this device."
+  },
+  "optSyncOff": {
+    "message": "Sync is off."
+  },
+  "optSyncNever": {
+    "message": "Not synced yet."
+  },
+  "optSyncLastPush": {
+    "message": "Last pushed: $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optSyncLastPull": {
+    "message": "Last pulled: $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optSyncNow": {
+    "message": "Sync now"
+  },
+  "optSyncDone": {
+    "message": "Sync finished."
+  },
+  "optSyncErrTooLarge": {
+    "message": "Settings are too large to sync (the limit is 8 KB). They stay on this device."
+  },
+  "optSyncErrQuota": {
+    "message": "The browser's sync storage is full or rate limited. Settings stay on this device."
+  },
+  "optSyncErrUnavailable": {
+    "message": "Browser sync is not available right now. Settings stay on this device."
+  },
+  "optSyncErrInvalidRemote": {
+    "message": "The synced settings are not valid and were ignored."
+  },
+  "optSyncErrUnknown": {
+    "message": "Sync failed ($P1$).",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optShortcutsLead": {
+    "message": "Keyboard shortcuts are managed by Chrome."
+  },
+  "optShortcutsChange": {
+    "message": "Change in Chrome"
+  },
+  "optShortcutsFailed": {
+    "message": "Could not read the shortcuts."
+  },
+  "optShortcutsEmpty": {
+    "message": "No commands found."
+  },
+  "optColCommand": {
+    "message": "Command"
+  },
+  "optColShortcut": {
+    "message": "Shortcut"
+  },
+  "optShortcutNotSet": {
+    "message": "Not set"
+  },
+  "optBmLead": {
+    "message": "Import bookmarks as quick links or as saved links in workspaces. Tabitat asks for the bookmarks permission only when you choose bookmarks, and you can remove it afterwards."
+  },
+  "optBmChoose": {
+    "message": "Choose bookmarks…"
+  },
+  "optBmDenied": {
+    "message": "Permission was not granted. Nothing was imported."
+  },
+  "optBmUnavailable": {
+    "message": "The bookmarks API is not available yet. Reload this page and try again."
+  },
+  "optBmLoadFailed": {
+    "message": "Could not read your bookmarks."
+  },
+  "optBmEmpty": {
+    "message": "No bookmarks with links were found."
+  },
+  "optBmFolders": {
+    "message": "Folders to import"
+  },
+  "optBmUntitled": {
+    "message": "Untitled folder"
+  },
+  "optBmToggle": {
+    "message": "Expand or collapse $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmFolderLabel": {
+    "message": "$P1$ ($P2$ links)",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "optBmDest": {
+    "message": "Destination"
+  },
+  "optBmDestQuick": {
+    "message": "Quick links"
+  },
+  "optBmDestWorkspace": {
+    "message": "One workspace"
+  },
+  "optBmDestPerFolder": {
+    "message": "One workspace per selected folder"
+  },
+  "optBmDestPerFolderHint": {
+    "message": "Subfolders become workspaces; links directly in a selected folder go to a workspace named after it."
+  },
+  "optBmWsName": {
+    "message": "Workspace name"
+  },
+  "optBmNameRequired": {
+    "message": "Enter a workspace name."
+  },
+  "optBmPreview": {
+    "message": "$P1$ links · $P2$ folders · $P3$ skipped (unsupported URLs)",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      },
+      "p3": {
+        "content": "$3"
+      }
+    }
+  },
+  "optBmOverflow": {
+    "message": "$P1$ more will be skipped: the destination is full.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmCapped": {
+    "message": "Only the first $P1$ links are sent.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optBmImport": {
+    "message": "Import"
+  },
+  "optBmImporting": {
+    "message": "Importing…"
+  },
+  "optBmResult": {
+    "message": "Imported $P1$ links, skipped $P2$.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "optBmRemovePerm": {
+    "message": "Remove bookmarks permission"
+  },
+  "optBmPermRemoved": {
+    "message": "Bookmarks permission removed."
+  },
+  "optDataBackup": {
+    "message": "Backup"
+  },
+  "optDataBackupLead": {
+    "message": "Download your settings, workspaces, notes and todos as one JSON file."
+  },
+  "optDataImport": {
+    "message": "Import a backup on the recovery page"
+  },
+  "optDataStorage": {
+    "message": "Storage and trash"
+  },
+  "optDataUsage": {
+    "message": "Storage used: $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optTrashOne": {
+    "message": "Trash: 1 item"
+  },
+  "optTrashMany": {
+    "message": "Trash: $P1$ items",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optEmptyTrashPrompt": {
+    "message": "Permanently delete $P1$ items in the trash?",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "optDataReset": {
+    "message": "Reset all settings"
+  },
+  "optResetLead": {
+    "message": "Restores every setting on this page to its default. Workspaces and saved data are not affected."
+  },
+  "optResetPrompt": {
+    "message": "Reset every setting to its default?"
+  },
+  "optResetDone": {
+    "message": "Settings reset."
+  },
+  "optAboutVersion": {
+    "message": "Version"
+  },
+  "optAboutFlavor": {
+    "message": "Edition"
+  },
+  "optFlavorDefault": {
+    "message": "Default"
+  },
+  "optFlavorNewtab": {
+    "message": "New tab override"
+  },
+  "optAboutLicense": {
+    "message": "License"
+  },
+  "optAboutSource": {
+    "message": "Source code"
+  },
+  "optAboutPrivacy": {
+    "message": "Tabitat works on this device only. It makes no network requests, has no accounts and collects no data. Settings sync is opt-in and uses your browser's own sync storage."
   }
 }
