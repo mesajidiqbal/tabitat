@@ -5,21 +5,22 @@ Update it at the end of every phase (and at any forced pause).
 
 ## Current checkpoint
 
-- Phase: 1 complete → tag `phase-1`.
-- State: core domain (264 tests), platform adapters + fake browser with
-  failure injection, typed RPC, background services (lanes, command
-  router, repository with per-item salvage, init barrier with degraded
-  mode, reconciler, tab tracker with last-known rescue, durable switch
-  engine, session guard, reversible backup/import, suspender, pomodoro,
-  badge, commands), dev popup. 476 unit tests, 3 Playwright e2e on
-  installed Chrome incl. a real worker-kill mid-switch test. Reviewed
-  twice by Codex + Gemini (`docs/reviews/phase1-*.md`, triage in
-  `phase1-triage.md`); all must-fix items resolved.
-- Known gaps carried into Phase 2: recovery page is a stub (Phase 2
-  deliverable); suspected direct-tab duplicates after a worker restart
-  are only logged; manual QA items Q1–Q10 not yet run; Edge untested.
-- Next: Phase 2 — popup + side panel + recovery UI per `docs/UI-SPEC.md`,
-  then Codex + Gemini review.
+- Phase: 2 implemented (commit `5dea23b`), **paused for review**.
+- State: popup, side panel, recovery page per `docs/UI-SPEC.md`; shared
+  signals store, incremental search index, keyboard map, i18n (en),
+  theme, icons; 2 additive RPC commands (`recovery.dismiss`,
+  `system.purgeCorrupt`). 484 unit tests, 8 Playwright e2e on installed
+  Chrome. Popup JS 37 KB gz, first paint ≈ 20–30 ms.
+- Reviews: Gemini review running → `docs/reviews/phase2-gemini.md`.
+  Codex review **pending** (Codex usage limit reached at ~01:00 IST on
+  2026-10-31; resume at 03:00 IST). Then triage both →
+  `phase2-triage.md`, fix, verify, tag `phase-2`.
+- Known gaps from the implementer: no component tests (no DOM lib);
+  quick links not in search; dashboard/options pages don't apply theme
+  yet (Phase 4); side panel shows other windows' Unsorted workspaces as
+  cards (review question); no drag-and-drop.
+- Next after `phase-2`: Phase 3 — suspension UI, duplicate detection UX,
+  trash/undo polish, options page, settings sync, bookmarks import.
 
 ## Review process (every phase)
 
@@ -40,7 +41,7 @@ Update it at the end of every phase (and at any forced pause).
 | 0 | done | `phase-0` | design reviewed by Codex + Gemini; scaffold green |
 | 1a | done | — | spike S1–S14 on Chrome + Brave (`docs/SPIKE.md`) |
 | 1 | done | `phase-1` | core + engine; 2 review rounds; 476 tests |
-| 2 | pending | | |
+| 2 | implemented, review pending | — | UI; Codex paused until 03:00 IST |
 | 3 | pending | | |
 | 4 | pending | | |
 | 5 | pending | | |
