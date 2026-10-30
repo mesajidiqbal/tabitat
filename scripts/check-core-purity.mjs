@@ -19,6 +19,8 @@ const violations = [];
 for (const file of walk(root).filter((f) => /\.(ts|tsx|js|mjs)$/.test(f))) {
   const lines = readFileSync(file, "utf8").split("\n");
   lines.forEach((line, i) => {
+    // Comments may mention browser APIs; only code counts.
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
     for (const { re, why } of forbidden) {
       if (re.test(line)) violations.push(`${file}:${i + 1} ${why}`);
     }
