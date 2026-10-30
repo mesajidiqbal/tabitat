@@ -11,7 +11,7 @@ Update it at the end of every phase (and at any forced pause).
   theme, icons; 2 additive RPC commands (`recovery.dismiss`,
   `system.purgeCorrupt`). 484 unit tests, 8 Playwright e2e on installed
   Chrome. Popup JS 37 KB gz, first paint ≈ 20–30 ms.
-- Reviews: Gemini review running → `docs/reviews/phase2-gemini.md`.
+- Reviews: Gemini review done → `docs/reviews/phase2-gemini.md` (note: its #1 "fuzzysort score >= 0.3 never true" is a false positive; v4 scores are 0–1).
   Codex review **pending** (Codex usage limit reached at ~01:00 IST on
   2026-10-31; resume at 03:00 IST). Then triage both →
   `phase2-triage.md`, fix, verify, tag `phase-2`.
