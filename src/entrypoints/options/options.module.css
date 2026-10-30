@@ -66,3 +66,9 @@
     border-bottom: 0;
   }
 }
+.skeleton {
+  min-height: 320px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}

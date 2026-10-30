@@ -20,6 +20,7 @@
     "e2e": "playwright test",
     "spike": "playwright test --project=spike",
     "check": "npm run lint && npm run typecheck && npm test",
+    "budgets": "node scripts/check-budgets.mjs && node scripts/check-budgets.mjs --dir .output-newtab/chrome-mv3",
     "postinstall": "wxt prepare"
   },
   "devDependencies": {

@@ -11,6 +11,7 @@ interface StoredSettings {
   rev: number;
   theme: string;
   suspend: { enabled: boolean; afterMinutes: number; whitelist: string[] };
+  backupReminderDays?: number;
 }
 
 let ext: LaunchedExtension;
@@ -281,4 +282,60 @@ test("Bookmarks per-folder import: one selected folder roots the mapping; severa
   await page.getByRole("button", { name: "Import", exact: true }).click();
   await expect(page.getByText("Imported 2 links, skipped 0.")).toBeVisible();
   await expect.poll(wsNames).toEqual([...before, "Docs", "Docs", "Misc"].sort());
+});
+
+test("Data section: the backup reminder field validates, saves backupReminderDays and shows the last backup", async () => {
+  await page.goto(extUrl("options.html#data"));
+  await expect(page.getByRole("heading", { level: 2, name: "Data" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Export HTML" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Strip query strings" })).not.toBeChecked();
+  await expect(page.getByText("Last backup: never")).toBeVisible();
+
+  const field = page.getByLabel("Remind me to back up every (days)");
+  await expect(field).toHaveValue("30");
+  const before = (await readSettings())?.rev ?? 0;
+  await field.fill("3");
+  await expect(page.getByText("Enter 0 (off) or a whole number from 7 to 365.")).toBeVisible();
+  await page.waitForTimeout(600);
+  expect((await readSettings())?.rev).toBe(before);
+
+  await field.fill("14");
+  await expect.poll(async () => (await readSettings())?.backupReminderDays).toBe(14);
+  await field.fill("0");
+  await expect.poll(async () => (await readSettings())?.backupReminderDays).toBe(0);
+  await expect(page.getByRole("status").filter({ hasText: "Saved" })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByLabel("Remind me to back up every (days)")).toHaveValue("0");
+});
+
+test("Data section: the backup banner shows for a due reminder and Turn off disables the reminder", async () => {
+  await ext.worker.evaluate(async () => {
+    // A fresh profile is never "due": age the install so the worker's own evaluation agrees.
+    const meta = (await chrome.storage.local.get("meta")).meta as Record<string, unknown>;
+    await chrome.storage.local.set({
+      meta: { ...meta, installedAt: Date.now() - 40 * 86_400_000 },
+      "backup:reminder": { dueSince: Date.now() - 86_400_000 },
+    });
+  });
+  await page.goto(extUrl("options.html#data"));
+  await page.getByLabel("Remind me to back up every (days)").fill("30");
+  await expect.poll(async () => (await readSettings())?.backupReminderDays).toBe(30);
+  const banner = page.getByTestId("backup-banner");
+  await expect(banner).toContainText("No backup yet");
+  await expect(banner.getByRole("button", { name: "Export" })).toBeVisible();
+  await expect(banner.getByRole("button", { name: "Remind me in a week" })).toBeVisible();
+  await banner.getByRole("button", { name: "Turn off" }).click();
+  await expect.poll(async () => (await readSettings())?.backupReminderDays).toBe(0);
+  // Clean up the seeded record so later tests start without a banner.
+  await ext.worker.evaluate(() => chrome.storage.local.remove("backup:reminder"));
+  await expect(banner).toHaveCount(0);
+});
+
+test("lazy sections: the skeleton gives way to the section and hash navigation reaches About", async () => {
+  await page.goto(extUrl("options.html#about"));
+  await expect(page.getByRole("heading", { level: 2, name: "About" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "https://github.com/" })).toBeVisible();
+  await page.getByRole("link", { name: "Data" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Data" })).toBeVisible();
 });

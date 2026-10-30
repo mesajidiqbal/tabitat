@@ -25,6 +25,7 @@ export interface SettingsPatch {
   dashboard?: Partial<Settings["dashboard"]>;
   syncSettings?: boolean;
   restoreLimit?: number;
+  backupReminderDays?: number;
 }
 
 export interface SettingsApi {

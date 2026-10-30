@@ -1,5 +1,6 @@
 /** Storage keys owned by the background layer (not part of core's Keys contract). */
 import * as v from "valibot";
+import type { BackupReminder } from "../core/backup/reminder";
 import type { SavedTab, SwitchStage, WorkspaceId, WorkspaceTabs } from "../core/model/types";
 import type { LiveGroup, LiveTab } from "../core/ops/types";
 
@@ -28,7 +29,22 @@ export const BgKeys = {
    * restart (storage.local, `RecoveryHint`); drives the recovery banner.
    */
   recoveryHint: "recovery:hint",
+  /**
+   * Backup reminder (storage.local, `BackupReminder`): written by the daily `backup-reminder`
+   * alarm while a backup is due; removed when a backup is recorded or the reminder is off.
+   */
+  backupReminder: "backup:reminder",
 } as const;
+
+/** Value of BgKeys.backupReminder. */
+export const BackupReminderSchema = v.object({
+  dueSince: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  snoozedUntil: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
+});
+
+export function parseBackupReminder(input: unknown): BackupReminder {
+  return v.parse(BackupReminderSchema, input);
+}
 
 /** Value of BgKeys.recoveryHint. */
 export interface RecoveryHint {

@@ -4,6 +4,7 @@ import { ErrorBoundary } from "@/ui/components/ErrorBoundary";
 import { Toast } from "@/ui/components/Toast";
 import { Logo } from "@/ui/icons";
 import { useStore } from "@/ui/store";
+import { Data } from "./Data";
 import { ImportSection } from "./ImportSection";
 import { Interrupted } from "./Interrupted";
 import { Quarantine } from "./Quarantine";
@@ -33,6 +34,9 @@ export function App() {
       </ErrorBoundary>
       <ErrorBoundary name={t("trashTitle")}>
         <TrashSection />
+      </ErrorBoundary>
+      <ErrorBoundary name={t("recoveryDataTitle")}>
+        <Data />
       </ErrorBoundary>
       <ErrorBoundary name={t("importTitle")}>
         <ImportSection />

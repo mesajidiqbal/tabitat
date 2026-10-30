@@ -125,3 +125,20 @@
   font-size: var(--fs-sm);
   font-weight: 600;
 }
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.row .check {
+  margin-bottom: 0;
+}

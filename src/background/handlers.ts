@@ -3,6 +3,8 @@
  * schema (src/messaging/schemas.ts), lanes and handler. Record edits check `expectedRev`
  * (conflict) and bump `rev`; they ack only after storage.local.set resolved.
  */
+import { buildBackup } from "../core/backup";
+import { buildHtmlExport, withSavedLinks } from "../core/export/html";
 import { parseSettings } from "../core/model/schemas";
 import type {
   Note,
@@ -23,6 +25,7 @@ import {
 import { nextLocalUpdatedAt } from "../core/sync/settings";
 import { RpcError } from "../messaging/errors";
 import { PayloadSchemas } from "../messaging/schemas";
+import { evaluateBackupReminder, recordBackup, snoozeBackupReminder } from "./backup-reminder";
 import { importBookmarks } from "./bookmarks-import";
 import type { CommandRouter } from "./command-router";
 import { BG_PREFIX, BgKeys } from "./keys";
@@ -300,10 +303,72 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
     () => [Lane.sessions],
   );
 
+  /** Stamps `meta.lastBackupAt` and clears the reminder; never fails the export itself. */
+  const stampBackup = async (): Promise<void> => {
+    // A degraded worker (init failed) still exports, but writes nothing.
+    if (s.barrier.isDegraded) return;
+    await recordBackup(ctx).catch((e) => ctx.log.warn("[tabitat] recording the backup failed", e));
+  };
+
   router.register(
     "backup.export",
     S["backup.export"],
-    () => s.backup.exportBackup(),
+    async () => {
+      const file = await s.backup.exportBackup();
+      await stampBackup();
+      return file;
+    },
+    () => [Lane.global],
+  );
+
+  router.register(
+    "backup.exportHtml",
+    S["backup.exportHtml"],
+    async (p) => {
+      const now = ports.now();
+      // Same source as the JSON export (salvaged records, index order + unindexed metas).
+      const { data } = buildBackup(await repo.getAll(), now);
+      const out = buildHtmlExport(
+        { kind: "all", workspaces: withSavedLinks(data.workspaces), quicklinks: data.quicklinks },
+        { now, stripQuery: p.stripQuery === true, placeholderBase: ctx.placeholderBase },
+      );
+      await stampBackup();
+      return out;
+    },
+    () => [Lane.global],
+  );
+
+  router.register(
+    "session.exportHtml",
+    S["session.exportHtml"],
+    async (p) => {
+      const generation = await repo.getSessionGen(p.generation);
+      if (!generation) throw new RpcError("not_found", `session ${p.generation} not found`);
+      const workspaceNames: Record<string, string> = {};
+      for (const id of new Set(generation.windows.map((w) => w.workspaceId))) {
+        if (id === null) continue;
+        const meta = await repo.getWorkspaceMeta(id);
+        if (meta) workspaceNames[id] = meta.name;
+      }
+      return buildHtmlExport(
+        { kind: "generation", generation, workspaceNames },
+        {
+          now: ports.now(),
+          stripQuery: p.stripQuery === true,
+          placeholderBase: ctx.placeholderBase,
+        },
+      );
+    },
+    () => [Lane.sessions],
+  );
+
+  router.register(
+    "reminder.snooze",
+    S["reminder.snooze"],
+    async (p) => {
+      await snoozeBackupReminder(ctx, p.days);
+      return null;
+    },
     () => [Lane.global],
   );
 
@@ -376,6 +441,10 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
       const recreate =
         next.sessions.everyMinutes !== cur.sessions.everyMinutes ? ["session-gen"] : [];
       await repairAlarms(ctx, next, recreate).catch((e) => ctx.log.warn(e));
+      // A new cadence (or "off") is applied to the reminder right away.
+      if (next.backupReminderDays !== cur.backupReminderDays) {
+        await evaluateBackupReminder(ctx, next).catch((e) => ctx.log.warn(e));
+      }
       // Sync (push; turning it on pulls first, and an applied pull repairs alarms itself).
       // Never fails the update: errors are recorded in sync:status.
       return s.settingsSync.afterUpdate(cur, next).catch((e: unknown) => {
@@ -383,14 +452,15 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
         return next;
       });
     },
-    () => [Lane.key(Keys.settings)],
+    () => [Lane.key(Keys.settings), Lane.key(BgKeys.backupReminder)],
   );
 
   router.register(
     "settings.syncNow",
     S["settings.syncNow"],
     () => s.settingsSync.syncNow(),
-    () => [Lane.key(Keys.settings)],
+    // A pulled cadence change re-evaluates the backup reminder.
+    () => [Lane.key(Keys.settings), Lane.key(BgKeys.backupReminder)],
   );
 
   // ---------------------------------------------------------------- bookmarks import

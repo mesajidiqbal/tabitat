@@ -1,10 +1,9 @@
 import { Keys } from "@/core/model/types";
 import { t } from "@/i18n";
 import { useStorageKey } from "../hooks/useStorageKey";
+import { REPO_URL } from "./about";
 import { Group, Section } from "./fields";
 import s from "./options.module.css";
-
-const REPO_URL = "https://github.com/";
 
 const flavorOf = (raw: unknown): "default" | "newtab" =>
   (raw as { flavor?: unknown } | undefined)?.flavor === "newtab" ? "newtab" : "default";

@@ -2,6 +2,7 @@
  * Options page (docs/PHASE3.md §5): one section at a time, chosen by the URL hash
  * (`options.html#suspension`). Settings are read from storage and written through the worker.
  */
+import { Suspense } from "preact/compat";
 import { useEffect, useState } from "preact/hooks";
 import { t } from "@/i18n";
 import { ErrorBoundary } from "@/ui/components/ErrorBoundary";
@@ -53,7 +54,18 @@ function Shell() {
         <main class={s.content}>
           <Banners />
           <ErrorBoundary key={current.id} name={t(current.label)}>
-            <Component key={epoch} />
+            <Suspense
+              fallback={
+                <div
+                  class={s.skeleton}
+                  role="status"
+                  aria-busy="true"
+                  aria-label={t("optLoading")}
+                />
+              }
+            >
+              <Component key={epoch} />
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>

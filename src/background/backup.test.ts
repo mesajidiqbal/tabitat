@@ -74,13 +74,14 @@ describe("BackupService", () => {
 
   it("rejects invalid files and dangerous URLs without writing anything", async () => {
     const h = await setup({ before: (fake) => seedWorkspace(fake, "A", ["https://a.example/"]) });
+    // (the export itself records meta.lastBackupAt: snapshot after it)
+    const file = await h.ok("backup.export", {});
     const before = JSON.stringify([...h.fake.local.entries()]);
     expect(
       await h.rpc("backup.import", { file: { format: "nope" }, mode: "replace" }),
     ).toMatchObject({
       code: "invalid",
     });
-    const file = await h.ok("backup.export", {});
     const evil = structuredClone(file);
     (evil.data.workspaces[0]?.tabs.tabs[0] as { url: string }).url = "javascript:alert(1)";
     expect(await h.rpc("backup.import", { file: evil, mode: "replace" })).toMatchObject({

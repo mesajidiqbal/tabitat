@@ -3,14 +3,22 @@ import { Keys } from "@/core/model/types";
 import { plural, t } from "@/i18n";
 import { send } from "@/messaging/client";
 import c from "../components/controls.module.css";
-import { downloadJson } from "../format";
+import { exportHtmlBackup, exportJsonBackup, useStripQuery } from "../exportActions";
+import { absTime } from "../format";
 import { useStorageKey } from "../hooks/useStorageKey";
+import { BackupBanner } from "../sections/BackupBanner";
 import { ConfirmAction, type Line, LineView } from "./actions";
 import { errorLine } from "./errors";
-import { Group, Section } from "./fields";
+import { Group, NumberField, Section } from "./fields";
 import s from "./options.module.css";
 import { useSettingsApi } from "./SettingsContext";
-import { formatBytes, resetPatch } from "./settings";
+import { formatBytes, RANGES, resetPatch } from "./settings";
+
+/** Local date and time of the last backup, or null when there was none. */
+const lastBackupText = (raw: unknown): string | null => {
+  const at = (raw as { lastBackupAt?: unknown } | undefined)?.lastBackupAt;
+  return typeof at === "number" && Number.isFinite(at) ? absTime(at) : null;
+};
 
 const trashCount = (raw: unknown): number => {
   const items = (raw as { items?: unknown } | undefined)?.items;
@@ -34,7 +42,9 @@ function useBytesInUse(dep: unknown): number | null {
 }
 
 export function DataSection() {
-  const { update } = useSettingsApi();
+  const { settings, update } = useSettingsApi();
+  const lastBackup = lastBackupText(useStorageKey(Keys.meta).value);
+  const [stripQuery, setStripQuery] = useStripQuery();
   const trash = trashCount(useStorageKey(Keys.trash).value);
   const bytes = useBytesInUse(trash);
   const [line, setLine] = useState<Line>(null);
@@ -43,11 +53,9 @@ export function DataSection() {
     const err = errorLine(e);
     setLine({ ok: false, text: err.text, detail: err.detail });
   };
-  const exportBackup = async () => {
+  const exportWith = async (run: () => Promise<void>) => {
     try {
-      const file = await send("backup.export", {});
-      const day = new Date(file.exportedAt).toISOString().slice(0, 10);
-      downloadJson(`tabitat-backup-${day}.json`, file);
+      await run();
       setLine(null);
     } catch (e) {
       fail(e);
@@ -67,16 +75,43 @@ export function DataSection() {
 
   return (
     <Section id="data" title={t("optData")}>
+      <BackupBanner variant="page" onTurnOff={() => update("data", { backupReminderDays: 0 })} />
       <Group title={t("optDataBackup")}>
         <p class={s.hint}>{t("optDataBackupLead")}</p>
+        <p class={s.hint}>{t("optDataHtmlHint")}</p>
         <div class={s.row}>
-          <button type="button" class={c.btn} onClick={() => void exportBackup()}>
+          <button type="button" class={c.btn} onClick={() => void exportWith(exportJsonBackup)}>
             {t("exportBackup")}
           </button>
+          <button
+            type="button"
+            class={c.btn}
+            onClick={() => void exportWith(() => exportHtmlBackup(stripQuery))}
+          >
+            {t("exportHtml")}
+          </button>
+          <label class={s.toggle}>
+            <input
+              type="checkbox"
+              checked={stripQuery}
+              onChange={(e) => setStripQuery((e.currentTarget as HTMLInputElement).checked)}
+            />
+            <span title={t("stripQueryHint")}>{t("stripQueryStrings")}</span>
+          </label>
           <a class={s.link} href="recovery.html" target="_blank" rel="noopener">
             {t("optDataImport")}
           </a>
         </div>
+      </Group>
+      <Group title={t("optBackupGroup")}>
+        <NumberField
+          label={t("optBackupReminder")}
+          hint={t("optBackupReminderHint")}
+          value={settings.backupReminderDays}
+          {...RANGES.backupReminderDays}
+          onCommit={(n) => void update("data", { backupReminderDays: n })}
+        />
+        <p>{t("optLastBackup", lastBackup ?? t("optLastBackupNever"))}</p>
       </Group>
       <Group title={t("optDataStorage")}>
         <p>{bytes === null ? "…" : t("optDataUsage", formatBytes(bytes))}</p>

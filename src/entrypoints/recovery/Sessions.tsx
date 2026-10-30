@@ -5,13 +5,22 @@ import { Keys } from "@/core/model/types";
 import { plural, t } from "@/i18n";
 import { send } from "@/messaging/client";
 import c from "@/ui/components/controls.module.css";
-import { absTime, downloadJson, relTime } from "@/ui/format";
+import { exportSessionHtml, useStripQuery } from "@/ui/exportActions";
+import { absTime, relTime } from "@/ui/format";
 import { useStorageKey } from "@/ui/hooks/useStorageKey";
 import { store } from "@/ui/store";
 import s from "./recovery.module.css";
 import { errStatus, type Status, StatusLine, TabList } from "./shared";
 
-function Generation({ n, onStatus }: { n: number; onStatus: (s: Status) => void }) {
+function Generation({
+  n,
+  stripQuery,
+  onStatus,
+}: {
+  n: number;
+  stripQuery: boolean;
+  onStatus: (s: Status) => void;
+}) {
   const gen = useStorageKey<SessionGeneration>(Keys.sessionGen(n)).value;
   if (!gen || typeof gen !== "object") return null;
   // Stored generations can be malformed: missing / non-array windows or tabs read as empty.
@@ -23,6 +32,11 @@ function Generation({ n, onStatus }: { n: number; onStatus: (s: Status) => void 
   const restore = () =>
     send("session.restore", { generation: gen.id }).then(
       () => onStatus({ kind: "ok", text: t("restoredGeneration", absTime(gen.takenAt)) }),
+      (e: unknown) => onStatus(errStatus(e)),
+    );
+  const exportHtml = () =>
+    exportSessionHtml(gen.id, stripQuery).then(
+      () => onStatus(null),
       (e: unknown) => onStatus(errStatus(e)),
     );
   return (
@@ -37,6 +51,16 @@ function Generation({ n, onStatus }: { n: number; onStatus: (s: Status) => void 
       </div>
       <button type="button" class={c.btn} onClick={() => void restore()} disabled={tabs === 0}>
         {t("restoreNewWindow")}
+      </button>
+      <button
+        type="button"
+        class={c.btn}
+        aria-label={t("exportHtmlFor", absTime(gen.takenAt))}
+        title={t("exportHtmlFor", absTime(gen.takenAt))}
+        onClick={() => void exportHtml()}
+        disabled={tabs === 0}
+      >
+        {t("exportHtml")}
       </button>
       {windows.map((w, i) => (
         <TabList
@@ -55,15 +79,7 @@ export function Sessions() {
   const gens = Array.isArray(index)
     ? [...index].filter((n) => typeof n === "number").reverse()
     : [];
-  const exportBackup = () =>
-    send("backup.export", {}).then(
-      (file) =>
-        downloadJson(
-          `tabitat-backup-${new Date(file.exportedAt).toISOString().slice(0, 10)}.json`,
-          file,
-        ),
-      (e: unknown) => setStatus(errStatus(e)),
-    );
+  const [stripQuery, setStripQuery] = useStripQuery();
   const snapshot = () =>
     send("session.snapshotNow", {}).then(
       () => setStatus({ kind: "ok", text: t("snapshotTaken") }),
@@ -76,18 +92,23 @@ export function Sessions() {
         <button type="button" class={c.btn} onClick={() => void snapshot()}>
           {t("snapshotNow")}
         </button>
-        <button type="button" class={c.btn} onClick={() => void exportBackup()}>
-          {t("exportBackup")}
-        </button>
       </div>
       <p class={s.muted}>{t("sessionsLead")}</p>
+      <label class={s.check}>
+        <input
+          type="checkbox"
+          checked={stripQuery}
+          onChange={(e) => setStripQuery((e.currentTarget as HTMLInputElement).checked)}
+        />
+        <span title={t("stripQueryHint")}>{t("stripQueryStrings")}</span>
+      </label>
       <StatusLine status={status} />
       {gens.length === 0 ? (
         <p class={s.muted}>{t("noSessions")}</p>
       ) : (
         <ul class={s.list}>
           {gens.map((n) => (
-            <Generation key={n} n={n} onStatus={setStatus} />
+            <Generation key={n} n={n} stripQuery={stripQuery} onStatus={setStatus} />
           ))}
         </ul>
       )}

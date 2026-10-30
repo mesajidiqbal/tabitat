@@ -8,11 +8,13 @@ import type { Flavor } from "../core/model/types";
 import { Keys } from "../core/model/types";
 import type { BgPorts, Unsubscribe } from "../platform/events";
 import { BackupService } from "./backup";
+import { evaluateBackupReminder } from "./backup-reminder";
 import { Badge } from "./badge";
 import { CommandRouter } from "./command-router";
 import { Shortcuts } from "./commands";
 import { BgContext } from "./context";
 import { purgeExpiredTrash, registerHandlers } from "./handlers";
+import { BgKeys } from "./keys";
 import { Lane, LaneQueue } from "./lanes";
 import { POMODORO_ALARM, PomodoroService } from "./pomodoro";
 import { ALARMS, type InitReport, ReadyBarrier, type ReadyState, runInit } from "./ready";
@@ -179,7 +181,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
         // Remote settings changes: pulled in lane key:settings once init is done.
         settingsSync.start(async (pull) => {
           if ((await readyOrRetry()).degraded) return;
-          await lanes.run([Lane.key(Keys.settings)], pull);
+          await lanes.run([Lane.key(Keys.settings), Lane.key(BgKeys.backupReminder)], pull);
         }),
       );
     },
@@ -214,6 +216,9 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
         case ALARMS.trashPurge:
           await lanes.run([Lane.trash], () => purgeExpiredTrash(services as Services));
           return;
+        case ALARMS.backupReminder:
+          await lanes.run([Lane.key(BgKeys.backupReminder)], () => evaluateBackupReminder(ctx));
+          return;
         case POMODORO_ALARM:
           await lanes.run([Lane.key("pomodoro")], () => pomodoro.onAlarm());
           return;
@@ -232,7 +237,10 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
 export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   "op.status",
   "system.ping",
+  // Exports stay available in a degraded worker (they then skip the lastBackupAt stamp).
   "backup.export",
+  "backup.exportHtml",
+  "session.exportHtml",
 ]);
 
 export { switchLanes };

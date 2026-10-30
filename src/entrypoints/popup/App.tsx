@@ -6,6 +6,7 @@ import { SearchBox } from "@/ui/components/SearchBox";
 import { Toast } from "@/ui/components/Toast";
 import { useSurface } from "@/ui/hooks/useSurface";
 import { Logo } from "@/ui/icons";
+import { BackupBanner } from "@/ui/sections/BackupBanner";
 import { ClosedSection } from "@/ui/sections/ClosedSection";
 import { Header } from "@/ui/sections/Header";
 import { LinksSection } from "@/ui/sections/LinksSection";
@@ -48,6 +49,7 @@ export function App() {
         )}
       </main>
       <RecoveryBanner />
+      <BackupBanner />
       <footer class={s.footer}>
         <span class={s.brand} title={t("appDescription")}>
           <Logo />

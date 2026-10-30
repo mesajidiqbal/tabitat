@@ -14,7 +14,7 @@ export default defineConfig({
     // Component tests are named *.dom.test.tsx and opt into happy-dom per file
     // (`// @vitest-environment happy-dom`); everything else runs in node.
     environment: "node",
-    include: ["src/**/*.test.ts", "src/**/*.dom.test.tsx"],
+    include: ["src/**/*.test.ts", "src/**/*.dom.test.tsx", "scripts/**/*.test.ts"],
     exclude: ["tests/e2e/**", "node_modules/**", ".output*/**"],
   },
 });

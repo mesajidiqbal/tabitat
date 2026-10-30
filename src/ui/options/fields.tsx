@@ -71,6 +71,8 @@ export interface NumberFieldProps {
   min: number;
   max: number;
   step: number;
+  /** A value outside min..max that is also allowed (e.g. 0 = off). */
+  off?: number;
   onCommit: (n: number) => void;
 }
 
@@ -84,7 +86,8 @@ export function NumberField(p: NumberFieldProps) {
   const input = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const typed = parseWhole(text);
-  const valid = typed !== null && typed >= p.min && typed <= p.max;
+  const inRange = (n: number) => n === p.off || (n >= p.min && n <= p.max);
+  const valid = typed !== null && inRange(typed);
 
   // A stored change shows up unless the user is typing in this very field.
   useEffect(() => {
@@ -96,13 +99,13 @@ export function NumberField(p: NumberFieldProps) {
     setText(v);
     clearTimeout(timer.current);
     const n = parseWhole(v);
-    if (n === null || n < p.min || n > p.max || n === p.value) return;
+    if (n === null || !inRange(n) || n === p.value) return;
     timer.current = setTimeout(() => p.onCommit(n), 300);
   };
   const blur = () => {
     clearTimeout(timer.current);
     if (typed === null) return setText(String(p.value));
-    const n = clamp(typed, p.min, p.max);
+    const n = typed === p.off ? typed : clamp(typed, p.min, p.max);
     setText(String(n));
     if (n !== p.value) p.onCommit(n);
   };
@@ -117,7 +120,7 @@ export function NumberField(p: NumberFieldProps) {
         class={`${s.control} ${s.num} ${valid || text === "" ? "" : s.invalid}`}
         type="number"
         inputMode="numeric"
-        min={p.min}
+        min={p.off === undefined ? p.min : Math.min(p.min, p.off)}
         max={p.max}
         step={p.step}
         value={text}
@@ -127,7 +130,7 @@ export function NumberField(p: NumberFieldProps) {
         onBlur={blur}
       />
       <p class={valid ? s.hint : s.err} id={`${id}-h`}>
-        {valid ? p.hint : t("optRange", [p.min, p.max])}
+        {valid ? p.hint : t(p.off === undefined ? "optRange" : "optRangeOff", [p.min, p.max])}
       </p>
     </div>
   );

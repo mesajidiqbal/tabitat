@@ -58,7 +58,8 @@ export function parseSettingsLoose(raw: unknown): Settings {
 
 /** Allowed ranges of the numeric controls (docs/PHASE3.md §5). */
 export const RANGES = {
-  restoreLimit: { min: 10, max: 500, step: 10 },
+  restoreLimit: { min: 10, max: 500, step: 1 },
+  backupReminderDays: { min: 7, max: 365, step: 1, off: 0 },
   suspendMinutes: { min: 5, max: 720, step: 1 },
   snapshotEvery: { min: 1, max: 60, step: 1 },
   snapshotKeep: { min: 3, max: 30, step: 1 },

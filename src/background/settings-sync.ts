@@ -26,6 +26,7 @@ import {
 import type { SyncStatus } from "../messaging/commands";
 import { RpcError } from "../messaging/errors";
 import type { Unsubscribe } from "../platform/events";
+import { evaluateBackupReminder } from "./backup-reminder";
 import type { BgContext } from "./context";
 import { BgKeys, SyncStatusSchema } from "./keys";
 import { ALARMS, repairAlarms } from "./ready";
@@ -177,9 +178,15 @@ export class SettingsSync {
 
   private async repairAlarmsAfter(prev: Settings, next: Settings): Promise<void> {
     const period = prev.sessions.everyMinutes !== next.sessions.everyMinutes;
-    if (!period && prev.suspend.enabled === next.suspend.enabled) return;
+    const reminder = prev.backupReminderDays !== next.backupReminderDays;
+    if (!period && !reminder && prev.suspend.enabled === next.suspend.enabled) return;
     await repairAlarms(this.ctx, next, period ? [ALARMS.sessionGen] : []).catch((e) =>
       this.ctx.log.warn("[tabitat] alarm repair after pull", e),
     );
+    if (reminder) {
+      await evaluateBackupReminder(this.ctx, next).catch((e) =>
+        this.ctx.log.warn("[tabitat] backup reminder after pull", e),
+      );
+    }
   }
 }

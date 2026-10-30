@@ -21,7 +21,13 @@ describe("init", () => {
     expect(stored<Meta>(h.fake, Keys.meta)?.schemaVersion).toBe(SCHEMA_VERSION);
     expect(stored(h.fake, Keys.settings)).toBeDefined();
     expect(stored(h.fake, Keys.migration(1))).toBeUndefined();
-    expect([...h.fake.alarms.keys()].sort()).toEqual(["flush-dirty", "session-gen", "trash-purge"]);
+    expect([...h.fake.alarms.keys()].sort()).toEqual([
+      "backup-reminder",
+      "flush-dirty",
+      "session-gen",
+      "trash-purge",
+    ]);
+    expect(h.fake.alarms.get("backup-reminder")?.periodInMinutes).toBe(1440);
     expect(h.fake.alarms.get("session-gen")?.periodInMinutes).toBe(5);
     expect(r?.generation).toBe(1);
     expect(h.fake.session.get(Keys.epoch)).toBe(r?.epoch);

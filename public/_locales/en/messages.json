@@ -493,6 +493,32 @@
   "openRecovery": {
     "message": "Open recovery"
   },
+  "backupBannerAgoOne": {
+    "message": "Last backup 1 day ago"
+  },
+  "backupBannerAgoMany": {
+    "message": "Last backup $COUNT$ days ago",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "backupBannerToday": {
+    "message": "Last backup today"
+  },
+  "backupBannerNone": {
+    "message": "No backup yet"
+  },
+  "backupBannerExport": {
+    "message": "Export"
+  },
+  "backupBannerSnooze": {
+    "message": "Remind me in a week"
+  },
+  "backupBannerOff": {
+    "message": "Turn off"
+  },
   "dashboardLink": {
     "message": "Dashboard"
   },
@@ -620,6 +646,29 @@
   },
   "exportBackup": {
     "message": "Export backup"
+  },
+  "exportHtml": {
+    "message": "Export HTML"
+  },
+  "exportHtmlFor": {
+    "message": "Export HTML of the snapshot from $WHEN$",
+    "placeholders": {
+      "when": {
+        "content": "$1"
+      }
+    }
+  },
+  "stripQueryStrings": {
+    "message": "Strip query strings"
+  },
+  "stripQueryHint": {
+    "message": "Removes the ?query and #fragment from every exported URL."
+  },
+  "recoveryDataTitle": {
+    "message": "Backup and export"
+  },
+  "recoveryDataLead": {
+    "message": "Download everything as a Tabitat backup (JSON), or as a bookmarks HTML file that any browser can import."
   },
   "noSessions": {
     "message": "No snapshots yet."
@@ -850,6 +899,43 @@
   },
   "optTitle": {
     "message": "Tabitat settings"
+  },
+  "optBackupGroup": {
+    "message": "Backup reminder"
+  },
+  "optBackupReminder": {
+    "message": "Remind me to back up every (days)"
+  },
+  "optBackupReminderHint": {
+    "message": "0 turns the reminder off."
+  },
+  "optRangeOff": {
+    "message": "Enter 0 (off) or a whole number from $P1$ to $P2$.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "optLastBackup": {
+    "message": "Last backup: $WHEN$",
+    "placeholders": {
+      "when": {
+        "content": "$1"
+      }
+    }
+  },
+  "optLastBackupNever": {
+    "message": "never"
+  },
+  "optLoading": {
+    "message": "Loading…"
+  },
+  "optDataHtmlHint": {
+    "message": "Export HTML writes your workspaces and quick links as a bookmarks file that any browser can import."
   },
   "optNavLabel": {
     "message": "Settings sections"

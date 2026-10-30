@@ -11,7 +11,7 @@
  *  4. op journal replay: canResume => resume, else abandon to `recovery:pending` (nothing deleted)
  *  5. window reconciliation (windows:* records, sessionEpoch; `recovery:hint` after a restart)
  *  5b. settings sync pull (best-effort; a newer remote copy is applied before alarm repair)
- *  6. alarm repair
+ *  6. alarm repair; backup reminder evaluated once
  *  7. flush windows left dirty by a killed worker
  *  8. a session generation (never from an all-empty state)
  */
@@ -25,6 +25,7 @@ import type { Flavor, Settings } from "../core/model/types";
 import { KEY_PREFIX, Keys } from "../core/model/types";
 import type { WindowMatch } from "../core/reconcile/matcher";
 import type { BackupService } from "./backup";
+import { evaluateBackupReminder } from "./backup-reminder";
 import type { BgContext } from "./context";
 import { reconcileWindows } from "./reconciler";
 import type { SessionGuard } from "./session-guard";
@@ -114,9 +115,13 @@ export const ALARMS = {
   sessionGen: "session-gen",
   suspendScan: "suspend-scan",
   trashPurge: "trash-purge",
+  backupReminder: "backup-reminder",
 } as const;
 
-/** Creates missing alarms (and clears suspend-scan when disabled). `recreate` forces re-creation. */
+/**
+ * Creates missing alarms (and clears suspend-scan / backup-reminder when disabled). `recreate`
+ * forces re-creation.
+ */
 export async function repairAlarms(
   ctx: BgContext,
   settings: Settings,
@@ -128,6 +133,7 @@ export async function repairAlarms(
     [ALARMS.trashPurge, 60],
   ]);
   if (settings.suspend.enabled) expected.set(ALARMS.suspendScan, 1);
+  if (settings.backupReminderDays > 0) expected.set(ALARMS.backupReminder, 1440);
   const have = new Set(await ctx.ports.alarms.getAll());
   const created: string[] = [];
   for (const [name, period] of expected) {
@@ -138,6 +144,9 @@ export async function repairAlarms(
   }
   if (!settings.suspend.enabled && have.has(ALARMS.suspendScan)) {
     await ctx.ports.alarms.clear(ALARMS.suspendScan);
+  }
+  if (settings.backupReminderDays <= 0 && have.has(ALARMS.backupReminder)) {
+    await ctx.ports.alarms.clear(ALARMS.backupReminder);
   }
   return created;
 }
@@ -262,9 +271,12 @@ export async function runInit(d: InitDeps): Promise<InitReport> {
     });
   }
 
-  // 6. alarms
+  // 6. alarms, then the backup reminder once (best-effort; the daily alarm re-evaluates)
   await step("alarms", async () => {
     report.alarmsCreated = await repairAlarms(ctx, await repo.getSettings());
+  });
+  await step("backupReminder", async () => {
+    await evaluateBackupReminder(ctx);
   });
 
   // 7. dirty windows left by a killed worker
