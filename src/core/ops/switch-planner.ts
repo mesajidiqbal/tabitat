@@ -6,7 +6,30 @@ import type { SavedTab, SavedTabId, SwitchOp, SwitchStage, WorkspaceId } from ".
 import { LIMITS } from "../model/types";
 import { snapshotWindow } from "./snapshot";
 import type { CreateSpec, GroupSpec, OpeningPlan, SwitchPlan, SwitchPlannerInput } from "./types";
-import { buildPlaceholderUrl, classifyUrl } from "./url";
+import { buildPlaceholderUrl, classifyUrl, unwrapUrl } from "./url";
+
+export type PlanErrorCode = "same_workspace";
+
+/** Thrown by planSwitch for requests that must not produce an op. */
+export class PlanError extends Error {
+  override readonly name = "PlanError";
+  constructor(readonly code: PlanErrorCode) {
+    super(code === "same_workspace" ? "cannot switch a window to its current workspace" : code);
+  }
+}
+
+/**
+ * SwitchPlan plus the tabs a switch leaves alone. Declared here because ops/types.ts is a fixed
+ * contract; it is a structural superset of SwitchPlan.
+ */
+export interface SwitchPlanWithRetained extends SwitchPlan {
+  /**
+   * Non-pinned tabs whose (unwrapped) URL classifies as "skip" (other extensions' pages,
+   * devtools://, javascript:, data:, blob:, …). They cannot be saved or restored, so — like
+   * pinned tabs — they stay open in the window across switches: never snapshotted, never closed.
+   */
+  retainedTabIds: number[];
+}
 
 /** savedTabId of the blank tab created when the target has nothing restorable (invariant I1). */
 export const BLANK_SAVED_TAB_ID = "__blank__";
@@ -99,14 +122,23 @@ export function planOpening(incoming: readonly SavedTab[], opts: OpeningOptions)
   return { chunks, groups, skipped };
 }
 
-/** Builds the SwitchOp (stage "snapshot"), the outgoing snapshot and the opening plan. */
-export function planSwitch(input: SwitchPlannerInput): SwitchPlan {
+/**
+ * Builds the SwitchOp (stage "snapshot"), the outgoing snapshot and the opening plan.
+ * Pinned tabs and unrestorable ("skip") tabs stay in the window: they are not in
+ * `op.outgoingTabIds` (so the closing stage never removes them) and the latter are reported in
+ * `retainedTabIds`. Throws PlanError("same_workspace") when `from === to`.
+ */
+export function planSwitch(input: SwitchPlannerInput): SwitchPlanWithRetained {
+  if (input.from !== null && input.from === input.to) throw new PlanError("same_workspace");
   const { window } = input;
   const nonPinned = window.tabs.filter((t) => !t.pinned).sort((a, b) => a.index - b.index);
   const pinnedCount = window.tabs.length - nonPinned.length;
+  const isRetained = (url: string) => classifyUrl(unwrapUrl(url, input.placeholderBase)) === "skip";
+  const outgoing = nonPinned.filter((t) => !isRetained(t.url));
+  const retainedTabIds = nonPinned.filter((t) => isRetained(t.url)).map((t) => t.id);
 
   const outgoingSnapshot =
-    input.from === null && nonPinned.length === 0
+    input.from === null && outgoing.length === 0
       ? null
       : snapshotWindow(window, input.fromTabs, {
           placeholderBase: input.placeholderBase,
@@ -115,6 +147,8 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlan {
         });
 
   const incoming = [...input.toTabs.tabs].sort((a, b) => a.index - b.index).map(cloneTab);
+  // Always creates at least one tab (blank if nothing is restorable), even when pinned or
+  // retained tabs would already keep the window non-empty (I1) — simpler for the engine.
   const opening = planOpening(incoming, {
     workspaceId: input.to,
     activeSavedTabId: input.toTabs.activeSavedTabId,
@@ -131,7 +165,7 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlan {
     to: input.to,
     stage: "snapshot",
     sessionEpoch: input.sessionEpoch,
-    outgoingTabIds: nonPinned.map((t) => t.id),
+    outgoingTabIds: outgoing.map((t) => t.id),
     createdTabIds: {},
     incoming,
     skipped: opening.skipped.map(cloneTab),
@@ -139,7 +173,7 @@ export function planSwitch(input: SwitchPlannerInput): SwitchPlan {
     attempts: 0,
   };
   if (active) op.activeSavedTabId = active.savedTabId;
-  return { op, outgoingSnapshot, opening };
+  return { op, outgoingSnapshot, opening, retainedTabIds };
 }
 
 const STAGE_ORDER: readonly SwitchStage[] = [

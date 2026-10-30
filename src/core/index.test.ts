@@ -13,6 +13,8 @@ describe("core public API", () => {
       "snapshotWindow",
       "planSwitch",
       "canResume",
+      "PlanError",
+      "parseSessionsIndex",
       "matchWindows",
       "SearchIndex",
       "eligibleForDiscard",

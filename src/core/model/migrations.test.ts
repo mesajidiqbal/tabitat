@@ -9,7 +9,14 @@ import {
   planMigrations,
   storedSchemaVersion,
 } from "./migrations";
-import { isMeta, isQuickLinks, isSettings, isTrash, parseSettings } from "./schemas";
+import {
+  isMeta,
+  isQuickLinks,
+  isSessionsIndex,
+  isSettings,
+  isTrash,
+  parseSettings,
+} from "./schemas";
 import { DEFAULT_SETTINGS, SCHEMA_VERSION } from "./types";
 
 const ctx = { now: NOW, flavor: "newtab" as const };
@@ -37,6 +44,7 @@ describe("v1", () => {
     expect(isMeta(out.meta)).toBe(true);
     expect(isSettings(out.settings)).toBe(true);
     expect(isTrash(out.trash)).toBe(true);
+    expect(isSessionsIndex(out["sessions:index"])).toBe(true);
     expect(isQuickLinks(out.quicklinks)).toBe(true);
     expect(out.settings).not.toBe(DEFAULT_SETTINGS);
   });

@@ -159,6 +159,19 @@ export const SwitchOpSchema = v.object({
 
 // ---------------------------------------------------------------- sessions / history
 
+/**
+ * `sessions:index`: generation ids (numbers, the `n` of `sessions:gen:<n>`), strictly ascending,
+ * oldest first. (ARCHITECTURE §6 lists it as string[]; Keys.sessionGen takes a number, so the
+ * index stores numbers.)
+ */
+export const SessionsIndexSchema = v.pipe(
+  v.array(NonNegInt),
+  v.check(
+    (ids) => ids.every((id, i) => i === 0 || id > (ids[i - 1] as number)),
+    "generation ids must be strictly ascending",
+  ),
+);
+
 export const SessionGenerationSchema = v.object({
   id: NonNegInt,
   takenAt: Timestamp,
@@ -341,6 +354,10 @@ export const parseWindowState = (input: unknown): WindowState =>
   parseWith("WindowState", WindowStateSchema, input);
 export const parseSwitchOp = (input: unknown): SwitchOp =>
   parseWith("SwitchOp", SwitchOpSchema, input);
+export const parseSessionsIndex = (input: unknown): number[] =>
+  parseWith("SessionsIndex", SessionsIndexSchema, input);
+export const isSessionsIndex = (input: unknown): input is number[] =>
+  v.is(SessionsIndexSchema, input);
 export const parseSessionGeneration = (input: unknown): SessionGeneration =>
   parseWith("SessionGeneration", SessionGenerationSchema, input);
 export const parseClosedTab = (input: unknown): ClosedTab =>

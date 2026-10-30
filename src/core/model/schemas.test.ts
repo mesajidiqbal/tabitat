@@ -268,6 +268,22 @@ describe("BackupFile defaults", () => {
   });
 });
 
+describe("SessionsIndex", () => {
+  it("accepts ascending generation ids", () => {
+    expect(S.parseSessionsIndex([])).toEqual([]);
+    expect(S.parseSessionsIndex([1, 2, 7])).toEqual([1, 2, 7]);
+    expect(S.isSessionsIndex([0, 3])).toBe(true);
+  });
+  it("rejects strings, non-integers, negatives and unsorted/duplicate ids", () => {
+    expect(() => S.parseSessionsIndex(["1"])).toThrow(S.SchemaError);
+    expect(() => S.parseSessionsIndex([1.5])).toThrow(/SessionsIndex\.0/);
+    expect(S.isSessionsIndex([-1])).toBe(false);
+    expect(() => S.parseSessionsIndex([3, 2])).toThrow(/ascending/);
+    expect(S.isSessionsIndex([2, 2])).toBe(false);
+    expect(S.isSessionsIndex({})).toBe(false);
+  });
+});
+
 describe("misc schemas", () => {
   it("WorkspaceIndex / RecentlyClosed", () => {
     expect(S.parseWorkspaceIndex(["a", "b"])).toEqual(["a", "b"]);

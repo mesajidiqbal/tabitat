@@ -8,11 +8,12 @@ import {
   canResume,
   MAX_SWITCH_ATTEMPTS,
   nextStage,
+  PlanError,
   planOpening,
   planSwitch,
 } from "./switch-planner";
 import type { SwitchPlannerInput } from "./types";
-import { parsePlaceholderUrl } from "./url";
+import { buildPlaceholderUrl, parsePlaceholderUrl } from "./url";
 
 function input(over: Partial<SwitchPlannerInput> = {}): SwitchPlannerInput {
   return {
@@ -212,6 +213,85 @@ describe("planSwitch", () => {
       expect(real.length + plan.opening.skipped.length).toBe(n);
       expect(s.length === real.length).toBe(real.length > 0);
     }
+  });
+});
+
+describe("planSwitch — retained tabs", () => {
+  const window = liveWindow([
+    { id: 1, url: "https://pinned.com", pinned: true },
+    { id: 2, url: "https://a.com", active: true },
+    { id: 3, url: "chrome-extension://other/page.html" },
+    { id: 4, url: "devtools://devtools/inspector.html" },
+    { id: 5, url: "chrome://settings" },
+    // a placeholder wrapping a restorable URL is outgoing, not retained
+    { id: 6, url: buildPlaceholderUrl(BASE, { u: "https://b.com", t: "", w: "wsA", s: "x" }) },
+    { id: 7, url: "data:text/html,x" },
+  ]);
+
+  it("keeps unrestorable tabs out of outgoingTabIds and reports them as retained", () => {
+    const plan = planSwitch(input({ window }));
+    expect(plan.op.outgoingTabIds).toEqual([2, 5, 6]);
+    expect(plan.retainedTabIds).toEqual([3, 4, 7]);
+    // ...and they are not saved either
+    expect(plan.outgoingSnapshot?.tabs.map((t) => t.url)).toEqual([
+      "https://a.com",
+      "chrome://settings",
+      "https://b.com",
+    ]);
+  });
+
+  it("retained and pinned tabs are disjoint from outgoing (property)", () => {
+    const rand = rng(5);
+    const urls = ["https://a.com", "chrome-extension://x/y", "about:blank", "blob:x", "file:///f"];
+    for (let i = 0; i < 100; i++) {
+      const tabs = Array.from({ length: Math.floor(rand() * 8) }, (_, j) => ({
+        id: j + 1,
+        url: urls[Math.floor(rand() * urls.length)] as string,
+        pinned: rand() < 0.2,
+      }));
+      const plan = planSwitch(input({ window: liveWindow(tabs) }));
+      const pinned = tabs.filter((t) => t.pinned).map((t) => t.id);
+      const all = [...plan.op.outgoingTabIds, ...plan.retainedTabIds, ...pinned].sort(
+        (a, b) => a - b,
+      );
+      expect(all).toEqual(tabs.map((t) => t.id));
+      expect(plan.opening.chunks.flat().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("still creates a blank tab when only retained tabs remain and the target is empty", () => {
+    const onlyRetained = liveWindow([{ id: 9, url: "chrome-extension://x/y" }]);
+    const plan = planSwitch(input({ window: onlyRetained, from: null, toTabs: workspaceTabs([]) }));
+    expect(plan.op.outgoingTabIds).toEqual([]);
+    expect(plan.retainedTabIds).toEqual([9]);
+    expect(plan.outgoingSnapshot).toBeNull();
+    expect(plan.opening.chunks.flat()).toEqual([
+      {
+        savedTabId: BLANK_SAVED_TAB_ID,
+        url: BLANK_TAB_URL,
+        mode: "direct",
+        index: 0,
+        active: true,
+      },
+    ]);
+  });
+});
+
+describe("planSwitch — same workspace", () => {
+  it("throws PlanError(same_workspace) when from === to", () => {
+    expect(() => planSwitch(input({ from: "wsB", to: "wsB" }))).toThrow(PlanError);
+    try {
+      planSwitch(input({ from: "wsB", to: "wsB" }));
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(PlanError);
+      expect((e as PlanError).code).toBe("same_workspace");
+      expect((e as PlanError).name).toBe("PlanError");
+    }
+  });
+
+  it("allows switching an untracked window (from null)", () => {
+    expect(() => planSwitch(input({ from: null }))).not.toThrow();
   });
 });
 
