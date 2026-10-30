@@ -22,6 +22,7 @@ export default defineConfig({
     name: isNewTab ? "Tabitat New Tab" : "Tabitat",
     description: "Workspaces for your tabs. Local-only, no network.",
     minimum_chrome_version: "121",
+    default_locale: "en",
     permissions: [
       "tabs",
       "tabGroups",

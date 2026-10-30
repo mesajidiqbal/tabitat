@@ -176,7 +176,9 @@ switch (they belong to the window, not the workspace).
 - **Init barrier**: every handler awaits `ready()` which runs once per SW
   life: migrations (resumable), ops-journal replay, window reconciliation,
   alarm repair (`alarms.getAll` → recreate missing).
-- Durable timing uses `chrome.alarms` (≥ 30 s). Short debounces use
+- Durable timing uses `chrome.alarms` (≥ 30 s; Chrome only enforces the
+  floor on packaged installs — spike S5 — so the code never asks for less).
+  Short debounces use
   in-worker `setTimeout` **plus** a durable "dirty" marker so a killed
   worker still flushes on next wake (alarm `flush-dirty` every 1 min).
 - Long operations are chunked (≤ 10 tab ops per chunk) and each chunk
@@ -200,7 +202,8 @@ interface SwitchOp {
 Invariants: (I1) the window never has zero tabs; (I2) the outgoing
 workspace's snapshot is written **before** any tab is closed; (I3) tab ids
 are never persisted as workspace data (only inside the op record and only
-for the current browser session); (I4) TabTracker ignores a window while
+for the current browser session; note `tabs.discard` **replaces the tab
+id** — spike S11 — so the engine listens to `tabs.onReplaced`); (I4) TabTracker ignores a window while
 its op record exists; (I5) at most one op per window; a second request
 gets `busy`.
 
@@ -209,16 +212,24 @@ Stages:
    tabs only; pinned tabs stay in the window); record `outgoingTabIds`.
 2. `opening` — for each incoming SavedTab, create a tab in chunks:
    - `http(s)`/`file`/`ftp` → `suspended.html#u=<url>&t=<title>&w=<wsId>&s=<savedTabId>`
-     (placeholder; loads the real URL on activation — ADR-002).
-   - `chrome://`, `edge://`, `brave://`, `about:` → created directly
-     (cannot be wrapped; they are cheap).
+     (placeholder; loads the real URL on activation — ADR-002; spike S1/S2/S4:
+     zero target fetches, 20-tab switch p95 ≈ 130 ms, hashes survive restart.
+     Activation in an occluded window may not fire `visibilitychange`, so the
+     engine never assumes "activated ⇒ loaded"; click/keypress is the fallback).
+   - `chrome://`, `about:` (plus `edge://` on Edge, `brave://` on Brave —
+     detected at runtime from `navigator.userAgentData.brands`) → created
+     directly (cannot be wrapped; they are cheap). Another browser's
+     internal scheme yields an empty tab (spike S13) and is skipped.
    - `chrome-extension://` of other extensions, `devtools://`, `javascript:`,
      `data:` → skipped and listed in the op result ("could not restore").
    Re-create tab groups (`tabs.group` + `tabGroups.update`).
 3. `activating` — activate the saved active tab (or first); set
    `windows:<id>.activeWorkspaceId = to`.
-4. `closing` — `tabs.remove(outgoingTabIds)` (ids that no longer exist
-   are ignored). Empty target workspace → create one `newtab` placeholder
+4. `closing` — remove `outgoingTabIds` **one id at a time** (spike S7: a
+   batched `tabs.remove` rejects on a stale id *after* removing the valid
+   ones); a "No tab with id" rejection counts as done. Tabs whose URL
+   cannot be restored (other extensions' pages, devtools) are *retained*:
+   neither saved nor closed, like pinned tabs. Empty target workspace → create one `newtab` placeholder
    first (I1).
 5. `done` — delete the op record; full re-snapshot of the window into
    `ws:tabs:<to>`; badge update.
@@ -263,7 +274,8 @@ counts and lets the user restore any of them into a new window.
 ### 5.7 Suspension (opt-in)
 Alarm every 1 min when enabled: `tabs.query({active:false, pinned:false,
 audible:false, discarded:false})` → eligible if `lastAccessed < now − N`
-and host not whitelisted and scheme is `http(s)` → `tabs.discard`. No
+and host not whitelisted and scheme is `http(s)` → `tabs.discard` (which
+returns a **new tab id**; `tabs.onReplaced` keeps TabTracker consistent). No
 content scripts, so unsaved form input cannot be detected: default
 **off**, suggested 30 min, documented.
 

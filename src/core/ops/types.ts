@@ -81,6 +81,12 @@ export interface SwitchPlannerInput {
   /** the runtime URL of suspended.html */
   placeholderBase: string;
   newId: () => string;
+  /**
+   * Browser-internal schemes that can be created directly in the running browser
+   * (e.g. ["chrome:", "about:"] on Chrome, plus "edge:" on Edge, "brave:" on Brave).
+   * Saved tabs with other internal schemes are reported as skipped. Defaults to chrome:/about:.
+   */
+  directSchemes?: string[];
 }
 
 export interface SwitchPlan {
