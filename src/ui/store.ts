@@ -9,9 +9,13 @@ import { useEffect } from "preact/hooks";
 import type { RecoveryPending } from "@/background/keys";
 import type {
   ClosedTab,
+  Note,
+  PomodoroState,
   QuickLink,
+  Scope,
   Settings,
   SwitchOp,
+  TodoList,
   Trash,
   WindowState,
   WorkspaceMeta,
@@ -24,8 +28,12 @@ import {
   type RecoveryHint,
   sanitizeClosed,
   sanitizeHint,
+  sanitizeNote,
+  sanitizePomodoro,
   sanitizeQuickLinks,
   sanitizeRecovery,
+  sanitizeRev,
+  sanitizeTodoList,
   sanitizeTrash,
 } from "./sanitize";
 import type { UiGroup, UiTab } from "./tabs";
@@ -75,6 +83,17 @@ export const store = {
   /** `recovery:hint`: a window of the last session was not restored. */
   hint: signal<RecoveryHint | null>(null),
   quicklinks: signal<QuickLink[]>([]),
+  /** `quicklinks.rev` (expectedRev of quicklink.set). */
+  quicklinksRev: signal(0),
+  /**
+   * Todo lists / notes by scope, loaded for "global" and the current window's active workspace
+   * (on demand, `ensureScope`). A scope present here is loaded; a missing record is the empty
+   * list / note at rev 0. Every later change arrives through onChanged.
+   */
+  todos: signal<Record<Scope, TodoList>>({}),
+  notes: signal<Record<Scope, Note>>({}),
+  /** `pomodoro`: null when no session runs. */
+  pomodoro: signal<PomodoroState | null>(null),
   settings: signal<Settings>(DEFAULT_SETTINGS),
   recentlyClosed: signal<ClosedTab[]>([]),
   trash: signal<Trash>({ items: [] }),
@@ -155,7 +174,39 @@ function applyChange(key: string, raw: unknown): void {
   else if (key === RECOVERY_KEY) s.recovery.value = sanitizeRecovery(raw);
   else if (key === IMPORT_FAILED_KEY) s.importFailed.value = isObj(raw) ? raw : null;
   else if (key === RECOVERY_HINT_KEY) s.hint.value = sanitizeHint(raw);
-  else if (key === Keys.quicklinks) s.quicklinks.value = sanitizeQuickLinks(raw);
+  else if (key === Keys.quicklinks) {
+    s.quicklinks.value = sanitizeQuickLinks(raw);
+    s.quicklinksRev.value = sanitizeRev(raw);
+  } else if (key.startsWith(KEY_PREFIX.todos))
+    setKey(s.todos, key.slice(KEY_PREFIX.todos.length), sanitizeTodoList(raw));
+  else if (key.startsWith(KEY_PREFIX.notes))
+    setKey(s.notes, key.slice(KEY_PREFIX.notes.length), sanitizeNote(raw));
+  else if (key === Keys.pomodoro) s.pomodoro.value = sanitizePomodoro(raw);
+}
+
+const scopeLoads = new Map<Scope, Promise<void>>();
+/**
+ * Loads `todos:<scope>` and `notes:<scope>` once (no-op when both are loaded). A record that an
+ * onChanged event delivered while the read was in flight is newer and is kept.
+ */
+export function ensureScope(scope: Scope): Promise<void> {
+  if (scope in store.todos.peek() && scope in store.notes.peek()) return Promise.resolve();
+  const running = scopeLoads.get(scope);
+  if (running) return running;
+  const tk = Keys.todos(scope);
+  const nk = Keys.notes(scope);
+  const p = chrome.storage.local
+    .get([tk, nk])
+    .then((res) =>
+      batch(() => {
+        if (!(scope in store.todos.peek())) applyChange(tk, res[tk]);
+        if (!(scope in store.notes.peek())) applyChange(nk, res[nk]);
+      }),
+    )
+    .catch(() => undefined)
+    .finally(() => scopeLoads.delete(scope));
+  scopeLoads.set(scope, p);
+  return p;
 }
 
 async function loadWorkspaces(ids: string[]): Promise<void> {
@@ -279,6 +330,9 @@ async function start(): Promise<void> {
     IMPORT_FAILED_KEY,
     RECOVERY_HINT_KEY,
     Keys.quicklinks,
+    Keys.pomodoro,
+    Keys.todos("global"),
+    Keys.notes("global"),
   ]);
   const [w, wins, base] = await Promise.all([
     resolveWindowId(),
@@ -297,6 +351,9 @@ async function start(): Promise<void> {
     // Records before the index, so the index finds every workspace already loaded.
     for (const [k, v] of Object.entries(rest)) applyChange(k, v);
     for (const [k, v] of Object.entries(base)) applyChange(k, v);
+    // The global todo list / note count as loaded even when they do not exist yet.
+    for (const k of [Keys.todos("global"), Keys.notes("global")])
+      if (!(k in base)) applyChange(k, undefined);
     for (const [k, v] of buffered ?? []) applyChange(k, v);
     buffered = null;
     store.ready.value = true;
@@ -355,6 +412,11 @@ function subscribe(): void {
     store.liveWindowIds.value = store.liveWindowIds.peek().filter((x) => x !== id);
   });
   effect(() => applyTheme(store.settings.value.theme));
+  // The active workspace's todo list and note (the dashboard / side panel scope switch).
+  effect(() => {
+    const id = activeWorkspaceId.value;
+    if (id) void ensureScope(id);
+  });
   effect(() => {
     const need = store.opRecord.value !== null || store.pendingSwitch.value !== null;
     if (need) ensurePolling();

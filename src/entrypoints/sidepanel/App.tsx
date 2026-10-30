@@ -1,4 +1,7 @@
-/** Side panel: same read model and sections as the popup, full height, sticky headers, cards. */
+/**
+ * Side panel: same read model and sections as the popup, full height, sticky headers, cards;
+ * plus collapsible Todos / Notes / Pomodoro sections (Phase 4).
+ */
 import { t } from "@/i18n";
 import { openExtPage } from "@/ui/actions";
 import c from "@/ui/components/controls.module.css";
@@ -15,6 +18,7 @@ import { RESULTS_ID, resultId, SearchResults } from "@/ui/sections/SearchResults
 import { TabsSection } from "@/ui/sections/TabsSection";
 import { WorkspacesSection } from "@/ui/sections/WorkspacesSection";
 import { useStore } from "@/ui/store";
+import { PanelWidgets } from "./PanelWidgets";
 import s from "./sidepanel.module.css";
 
 export function App() {
@@ -45,6 +49,7 @@ export function App() {
             <TabsSection variant="panel" />
             <LinksSection variant="panel" />
             <ClosedSection variant="panel" />
+            <PanelWidgets />
           </>
         )}
       </main>

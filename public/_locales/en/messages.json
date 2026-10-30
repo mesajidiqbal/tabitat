@@ -1403,5 +1403,330 @@
         "content": "$1"
       }
     }
+  },
+  "dashClock": {
+    "message": "Clock"
+  },
+  "dashSearch": {
+    "message": "Search"
+  },
+  "dashQuickLinks": {
+    "message": "Quick links"
+  },
+  "dashTodos": {
+    "message": "Todos"
+  },
+  "dashNotes": {
+    "message": "Notes"
+  },
+  "dashPomodoro": {
+    "message": "Pomodoro"
+  },
+  "dashCustomize": {
+    "message": "Customize"
+  },
+  "dashClose": {
+    "message": "Close"
+  },
+  "dashWidgets": {
+    "message": "Widgets"
+  },
+  "dashMoveUp": {
+    "message": "Move $P1$ up",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashMoveDown": {
+    "message": "Move $P1$ down",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashNoWidgets": {
+    "message": "No widgets are shown. Open Customize to add some."
+  },
+  "dashTheme": {
+    "message": "Theme"
+  },
+  "dashThemeSystem": {
+    "message": "System"
+  },
+  "dashThemeLight": {
+    "message": "Light"
+  },
+  "dashThemeDark": {
+    "message": "Dark"
+  },
+  "dashWallpaper": {
+    "message": "Wallpaper"
+  },
+  "dashWallpaperGradients": {
+    "message": "Gradients"
+  },
+  "dashWallpaperColors": {
+    "message": "Colors"
+  },
+  "dashWallpaperGradient": {
+    "message": "Gradient $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashWallpaperColor": {
+    "message": "Color $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashWallpaperUpload": {
+    "message": "Upload image…"
+  },
+  "dashWallpaperRemove": {
+    "message": "Remove image"
+  },
+  "dashWallpaperTooLarge": {
+    "message": "That image is too large (max $P1$ MB).",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashWallpaperNotImage": {
+    "message": "That file is not an image."
+  },
+  "dashSettingsConflict": {
+    "message": "Settings changed elsewhere and were reloaded. Try again."
+  },
+  "dashGreetingMorning": {
+    "message": "Good morning"
+  },
+  "dashGreetingAfternoon": {
+    "message": "Good afternoon"
+  },
+  "dashGreetingEvening": {
+    "message": "Good evening"
+  },
+  "dashGreetingNight": {
+    "message": "Good night"
+  },
+  "dashSearchHint": {
+    "message": "Enter opens · Shift+Enter searches the web"
+  },
+  "dashSearchWeb": {
+    "message": "No matches. Press Enter to search the web for “$P1$”.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashScopeGlobal": {
+    "message": "Global"
+  },
+  "dashScopeLabel": {
+    "message": "Show for"
+  },
+  "dashTodoAdd": {
+    "message": "Add a task"
+  },
+  "dashTodoFull": {
+    "message": "List is full ($P1$ items)",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashTodoEmpty": {
+    "message": "Nothing to do."
+  },
+  "dashTodoEmptyHint": {
+    "message": "Type a task above and press Enter."
+  },
+  "dashTodoToggle": {
+    "message": "Done: $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashTodoEdit": {
+    "message": "Edit task"
+  },
+  "dashTodoDelete": {
+    "message": "Delete “$P1$”",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashTodoDone": {
+    "message": "done"
+  },
+  "dashTodoClearDone": {
+    "message": "Clear done"
+  },
+  "dashTodoLeftOne": {
+    "message": "$P1$ task left",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashTodoLeftMany": {
+    "message": "$P1$ tasks left",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashNotePreview": {
+    "message": "Preview"
+  },
+  "dashNoteEdit": {
+    "message": "Edit"
+  },
+  "dashNotePlaceholder": {
+    "message": "Write a note… (# heading, **bold**, *italic*, `code`, - list, [link](https://…))"
+  },
+  "dashNoteEmpty": {
+    "message": "This note is empty."
+  },
+  "dashNoteEmptyHint": {
+    "message": "Switch to Edit and start typing."
+  },
+  "dashNoteConflict": {
+    "message": "Changed elsewhere"
+  },
+  "dashNoteReload": {
+    "message": "Reload"
+  },
+  "dashNoteKeepMine": {
+    "message": "Keep mine"
+  },
+  "dashPomodoroIdle": {
+    "message": "Ready to focus"
+  },
+  "dashPomodoroWork": {
+    "message": "Focus"
+  },
+  "dashPomodoroBreak": {
+    "message": "Short break"
+  },
+  "dashPomodoroLongBreak": {
+    "message": "Long break"
+  },
+  "dashPomodoroRound": {
+    "message": "Round $P1$ / $P2$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "dashPomodoroStart": {
+    "message": "Start"
+  },
+  "dashPomodoroStop": {
+    "message": "Stop"
+  },
+  "dashPomodoroSkip": {
+    "message": "Skip"
+  },
+  "dashPomodoroTitle": {
+    "message": "$P1$ · Tabitat",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashPomodoroEmptyHint": {
+    "message": "Start a $P1$-minute focus session.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashLinksEmpty": {
+    "message": "No quick links yet."
+  },
+  "dashLinksEmptyHint": {
+    "message": "Pin the sites you open every day."
+  },
+  "dashLinksFull": {
+    "message": "Quick links are full ($P1$).",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashLinkAdd": {
+    "message": "Add quick link"
+  },
+  "dashLinkEdit": {
+    "message": "Edit quick link"
+  },
+  "dashLinkUrl": {
+    "message": "URL"
+  },
+  "dashLinkUrlPlaceholder": {
+    "message": "example.com"
+  },
+  "dashLinkTitle": {
+    "message": "Title"
+  },
+  "dashLinkTitlePlaceholder": {
+    "message": "Title (optional)"
+  },
+  "dashLinkSave": {
+    "message": "Save"
+  },
+  "dashLinkInvalid": {
+    "message": "Enter a web address (http or https)."
+  },
+  "dashLinkActions": {
+    "message": "Quick link actions: $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashLinkMoveLeft": {
+    "message": "Move left"
+  },
+  "dashLinkMoveRight": {
+    "message": "Move right"
+  },
+  "dashLinkRemove": {
+    "message": "Remove"
+  },
+  "dashLinkRemoved": {
+    "message": "Removed “$P1$”",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
   }
 }
