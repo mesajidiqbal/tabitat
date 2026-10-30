@@ -44,6 +44,12 @@ export function parseSettingsLoose(raw: unknown): Settings {
     },
     syncSettings: bool(raw.syncSettings, d.syncSettings),
     restoreLimit: posInt(raw.restoreLimit, d.restoreLimit),
+    backupReminderDays:
+      typeof raw.backupReminderDays === "number" &&
+      Number.isInteger(raw.backupReminderDays) &&
+      raw.backupReminderDays >= 0
+        ? raw.backupReminderDays
+        : d.backupReminderDays,
     rev: typeof raw.rev === "number" && Number.isInteger(raw.rev) && raw.rev >= 0 ? raw.rev : d.rev,
   };
   if (typeof raw.updatedAt === "number") out.updatedAt = raw.updatedAt;

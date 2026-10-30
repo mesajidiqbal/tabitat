@@ -30,6 +30,7 @@ const SETTINGS_KEYS = [
   "pomodoro",
   "syncSettings",
   "restoreLimit",
+  "backupReminderDays",
 ] as const;
 
 /** Top-level keys only; the merged result is validated with core's SettingsSchema. */
@@ -77,6 +78,14 @@ export const PayloadSchemas = {
   "session.restore": v.object({ generation: v.pipe(v.number(), v.integer(), v.minValue(0)) }),
   "session.snapshotNow": Empty,
   "backup.export": Empty,
+  "backup.exportHtml": v.object({ stripQuery: v.optional(v.boolean()) }),
+  "session.exportHtml": v.object({
+    generation: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    stripQuery: v.optional(v.boolean()),
+  }),
+  "reminder.snooze": v.object({
+    days: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(365)),
+  }),
   "backup.import": v.object({ file: v.unknown(), mode: v.picklist(["replace", "merge"]) }),
   "todo.set": v.object({ scope: ScopeSchema, items: v.array(TodoSchema), expectedRev: Rev }),
   "note.set": v.object({

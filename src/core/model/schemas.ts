@@ -362,6 +362,10 @@ export const SettingsSchema = v.object({
   ),
   syncSettings: v.optional(v.boolean(), D.syncSettings),
   restoreLimit: v.optional(PosInt, D.restoreLimit),
+  backupReminderDays: v.optional(
+    v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(365)),
+    D.backupReminderDays,
+  ),
   updatedAt: v.optional(PosInt),
   rev: v.optional(NonNegInt, D.rev),
 });
@@ -378,6 +382,7 @@ export const MetaSchema = v.object({
   schemaVersion: NonNegInt,
   installedAt: Timestamp,
   flavor: v.picklist(["default", "newtab"]),
+  lastBackupAt: v.optional(PosInt),
 });
 
 export const BackupFileSchema = v.object({

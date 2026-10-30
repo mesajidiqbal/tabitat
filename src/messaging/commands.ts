@@ -61,6 +61,11 @@ export interface ImportBookmarksReport {
   workspaces: WorkspaceId[];
   warnings: string[];
 }
+/** Phase 4: HTML export result (docs/PHASE4.md §2). */
+export interface HtmlExport {
+  html: string;
+  filename: string;
+}
 /** Phase 3: settings sync status (`sync:status` in storage.local). */
 export interface SyncStatus {
   enabled: boolean;
@@ -111,6 +116,12 @@ export interface Commands {
   "session.restore": { in: { generation: number }; out: { windowId: number } };
   "session.snapshotNow": { in: Record<string, never>; out: { generation: number } };
   "backup.export": { in: Record<string, never>; out: BackupFile };
+  /** Netscape-bookmark HTML of every workspace (tabs + saved links) and quick links (Phase 4). */
+  "backup.exportHtml": { in: { stripQuery?: boolean }; out: HtmlExport };
+  /** Same HTML format for one session generation (one folder per window). */
+  "session.exportHtml": { in: { generation: number; stripQuery?: boolean }; out: HtmlExport };
+  /** Snoozes the backup reminder banner. */
+  "reminder.snooze": { in: { days: number }; out: null };
   "backup.import": { in: { file: unknown; mode: "replace" | "merge" }; out: ImportReport };
   "todo.set": { in: { scope: Scope; items: Todo[]; expectedRev?: number }; out: { rev: number } };
   "note.set": { in: { scope: Scope; content: string; expectedRev?: number }; out: Note };

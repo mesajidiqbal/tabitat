@@ -200,6 +200,8 @@ export interface Settings {
   syncSettings: boolean;
   /** Max tabs restored by one switch; the rest are listed as skipped. */
   restoreLimit: number;
+  /** Backup reminder cadence in days; 0 = off (Phase 4). */
+  backupReminderDays: number;
   rev: number;
   /** Set by the worker on every update; last-write-wins key for settings sync (Phase 3). */
   updatedAt?: number;
@@ -218,6 +220,8 @@ export interface Meta {
   schemaVersion: number;
   installedAt: number;
   flavor: Flavor;
+  /** Last JSON/HTML backup produced through a worker command (Phase 4 reminder). */
+  lastBackupAt?: number;
 }
 
 /** Export/import file format. */
@@ -306,5 +310,6 @@ export const DEFAULT_SETTINGS: Settings = {
   pomodoro: { workMin: 25, breakMin: 5, longBreakMin: 15, roundsBeforeLong: 4 },
   syncSettings: false,
   restoreLimit: 100,
+  backupReminderDays: 30,
   rev: 0,
 };
