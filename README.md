@@ -2,7 +2,7 @@
 
 Workspaces for your tabs, as a Chrome extension (MV3). Local-only: no network access, no accounts.
 
-**Status:** pre-alpha, phase 0 (repository skeleton, no features yet).
+**Status:** pre-alpha. Phase 1 done (core domain + durable workspace engine, 476 tests, real-Chrome e2e); Phase 2 (popup, side panel, recovery UI) in progress. See `docs/PROGRESS.md`.
 
 ## Planned features
 
