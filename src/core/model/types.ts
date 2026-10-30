@@ -201,6 +201,8 @@ export interface Settings {
   /** Max tabs restored by one switch; the rest are listed as skipped. */
   restoreLimit: number;
   rev: number;
+  /** Set by the worker on every update; last-write-wins key for settings sync (Phase 3). */
+  updatedAt?: number;
 }
 
 export type PomodoroPhase = "work" | "break" | "longBreak";
@@ -276,6 +278,12 @@ export const LIMITS = {
   sessionGenerations: 10,
   trashRetentionMs: 30 * 24 * 60 * 60 * 1000,
   restoreChunk: 10,
+  /** Phase 3 (docs/PHASE3.md). */
+  quickLinks: 100,
+  linksPerWorkspace: 200,
+  importEntries: 2000,
+  importWorkspaces: 50,
+  whitelistHosts: 200,
 } as const;
 
 /** How long a heuristically reconciled window stays provisional (WindowState.provisional). */

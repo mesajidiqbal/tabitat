@@ -351,6 +351,7 @@ export const SettingsSchema = v.object({
   ),
   syncSettings: v.optional(v.boolean(), D.syncSettings),
   restoreLimit: v.optional(PosInt, D.restoreLimit),
+  updatedAt: v.optional(PosInt),
   rev: v.optional(NonNegInt, D.rev),
 });
 

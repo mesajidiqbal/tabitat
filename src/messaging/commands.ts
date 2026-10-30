@@ -40,6 +40,32 @@ export interface ImportReport {
   warnings: string[];
 }
 
+/** Phase 3: bookmarks import (docs/PHASE3.md §6). */
+export interface BookmarkEntry {
+  /** Folder path from the root, e.g. ["Bookmarks bar", "Work"]. */
+  path: string[];
+  title: string;
+  url: string;
+}
+export type ImportTarget =
+  | { kind: "quicklinks" }
+  | { kind: "workspace"; name: string; color: Color }
+  | { kind: "workspacePerFolder"; color: Color };
+export interface ImportBookmarksReport {
+  added: number;
+  skipped: number;
+  workspaces: WorkspaceId[];
+  warnings: string[];
+}
+/** Phase 3: settings sync status (`sync:status` in storage.local). */
+export interface SyncStatus {
+  enabled: boolean;
+  lastPushAt?: number;
+  lastPullAt?: number;
+  /** Short code: too_large | quota | unavailable | invalid_remote. */
+  error?: string;
+}
+
 export interface Commands {
   "workspace.create": {
     in: { name: string; color: Color; fromWindowId?: number };
@@ -73,6 +99,11 @@ export interface Commands {
   "tabs.park": { in: { tabId: number; workspaceId: WorkspaceId }; out: SavedLink };
   "tabs.suspendOthers": { in: { windowId: number }; out: number };
   "tabs.closeDuplicates": { in: { windowId?: number }; out: number };
+  /**
+   * Discards one tab now (Phase 3). `invalid` when the tab is active, pinned, audible, already
+   * discarded, a placeholder, or not http(s); `busy` while the window has a switch op.
+   */
+  "tabs.suspend": { in: { tabId: number }; out: null };
   "session.restore": { in: { generation: number }; out: { windowId: number } };
   "session.snapshotNow": { in: Record<string, never>; out: { generation: number } };
   "backup.export": { in: Record<string, never>; out: BackupFile };
@@ -84,6 +115,13 @@ export interface Commands {
     in: { patch: Partial<Omit<Settings, "rev">>; expectedRev?: number };
     out: Settings;
   };
+  /** One pull-then-push of settings via storage.sync (Phase 3). `invalid` when sync is off. */
+  "settings.syncNow": { in: Record<string, never>; out: SyncStatus };
+  /** Imports bookmark entries into quick links or workspaces as saved links (Phase 3, §6). */
+  "import.bookmarks": {
+    in: { entries: BookmarkEntry[]; target: ImportTarget };
+    out: ImportBookmarksReport;
+  };
   "trash.restore": { in: { trashId: string }; out: null };
   "trash.purge": { in: { trashId?: string }; out: number };
   "pomodoro.start": { in: Record<string, never>; out: PomodoroState };
@@ -92,6 +130,8 @@ export interface Commands {
   "op.status": { in: { windowId: number }; out: SwitchOp | null };
   /** Removes entries from `recovery:pending` (all when `opIds` is omitted). Returns how many. */
   "recovery.dismiss": { in: { opIds?: string[] }; out: number };
+  /** Removes the `recovery:hint` record (Phase 3). */
+  "recovery.dismissHint": { in: Record<string, never>; out: null };
   /**
    * Deletes quarantined records (`corrupt:*`) and/or the `import:failed` record. `keys` omitted
    * = every `corrupt:*` key. Any other key is rejected. Returns how many keys were removed.

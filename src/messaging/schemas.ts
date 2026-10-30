@@ -10,6 +10,7 @@ import {
   RestorableUrlSchema,
   TodoSchema,
 } from "../core/model/schemas";
+import { LIMITS } from "../core/model/types";
 import type { CommandType } from "./commands";
 
 /** Same id policy as the stored records (core IdSchema). */
@@ -72,6 +73,7 @@ export const PayloadSchemas = {
   "tabs.park": v.object({ tabId: TabId, workspaceId: Id }),
   "tabs.suspendOthers": v.object({ windowId: WindowId }),
   "tabs.closeDuplicates": v.object({ windowId: v.optional(WindowId) }),
+  "tabs.suspend": v.object({ tabId: TabId }),
   "session.restore": v.object({ generation: v.pipe(v.number(), v.integer(), v.minValue(0)) }),
   "session.snapshotNow": Empty,
   "backup.export": Empty,
@@ -84,6 +86,24 @@ export const PayloadSchemas = {
   }),
   "quicklink.set": v.object({ items: v.array(QuickLinkSchema), expectedRev: Rev }),
   "settings.update": v.object({ patch: SettingsPatch, expectedRev: Rev }),
+  "settings.syncNow": Empty,
+  "import.bookmarks": v.object({
+    entries: v.pipe(
+      v.array(
+        v.object({
+          path: v.pipe(v.array(v.pipe(v.string(), v.maxLength(200))), v.maxLength(32)),
+          title: v.pipe(v.string(), v.maxLength(2000)),
+          url: RestorableUrlSchema,
+        }),
+      ),
+      v.maxLength(LIMITS.importEntries),
+    ),
+    target: v.variant("kind", [
+      v.object({ kind: v.literal("quicklinks") }),
+      v.object({ kind: v.literal("workspace"), name: Name, color: ColorSchema }),
+      v.object({ kind: v.literal("workspacePerFolder"), color: ColorSchema }),
+    ]),
+  }),
   "trash.restore": v.object({ trashId: Id }),
   "trash.purge": v.object({ trashId: v.optional(Id) }),
   "pomodoro.start": Empty,
@@ -93,6 +113,7 @@ export const PayloadSchemas = {
   "recovery.dismiss": v.object({
     opIds: v.optional(v.array(v.pipe(v.string(), v.maxLength(200)))),
   }),
+  "recovery.dismissHint": Empty,
   "system.purgeCorrupt": v.object({
     keys: v.optional(
       v.array(
