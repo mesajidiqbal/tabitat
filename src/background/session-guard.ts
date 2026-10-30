@@ -11,6 +11,7 @@ import { snapshotWindow } from "../core/ops/snapshot";
 import { planOpening } from "../core/ops/switch-planner";
 import { RpcError } from "../messaging/errors";
 import type { BgContext } from "./context";
+import { BgKeys, type RecoveryHint } from "./keys";
 import { removeTabsSafely } from "./tab-utils";
 
 export interface SessionGuardDeps {
@@ -102,7 +103,15 @@ export class SessionGuard {
       [Keys.sessionGen(gen.id)]: gen,
       [Keys.sessionsIndex]: all.slice(-keep),
     });
-    if (dropped.length > 0) await repo.remove(dropped.map((n) => Keys.sessionGen(n)));
+    if (dropped.length > 0) {
+      // A recovery hint pointing at a generation that left the ring can no longer be acted on.
+      const hint = await this.ctx.ports.local.get<RecoveryHint>(BgKeys.recoveryHint);
+      const stale = hint !== undefined && dropped.includes(hint.generation);
+      await repo.remove([
+        ...dropped.map((n) => Keys.sessionGen(n)),
+        ...(stale ? [BgKeys.recoveryHint] : []),
+      ]);
+    }
     return gen.id;
   }
 

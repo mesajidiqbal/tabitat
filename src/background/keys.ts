@@ -21,7 +21,35 @@ export const BgKeys = {
   switchClosed: (windowId: number) => `switchClosed:${windowId}` as const,
   /** A staged import that could not be applied twice (storage.local; kept for recovery). */
   importFailed: "import:failed",
+  /** Settings sync status (storage.local, `SyncStatus`); read by the options page. */
+  syncStatus: "sync:status",
+  /**
+   * Windows of the latest session generation that no live window matched after a browser
+   * restart (storage.local, `RecoveryHint`); drives the recovery banner.
+   */
+  recoveryHint: "recovery:hint",
 } as const;
+
+/** Value of BgKeys.recoveryHint. */
+export interface RecoveryHint {
+  generation: number;
+  unmatchedWindows: number;
+  at: number;
+}
+
+export const RecoveryHintSchema = v.object({
+  generation: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  unmatchedWindows: v.pipe(v.number(), v.integer(), v.minValue(1)),
+  at: v.number(),
+});
+
+/** Value of BgKeys.syncStatus (same shape as the RPC `SyncStatus`). */
+export const SyncStatusSchema = v.object({
+  enabled: v.boolean(),
+  lastPushAt: v.optional(v.number()),
+  lastPullAt: v.optional(v.number()),
+  error: v.optional(v.string()),
+});
 
 export const BG_PREFIX = {
   corrupt: "corrupt:",

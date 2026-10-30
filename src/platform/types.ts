@@ -17,6 +17,24 @@ export interface StoragePort {
   ): () => void;
 }
 
+/**
+ * `chrome.storage.sync` (Phase 3 settings sync). Only the `settings` item is ever written
+ * (ARCHITECTURE §10). Some Chromium builds have no sync area: `available` is then false and every
+ * call rejects.
+ */
+export interface SyncStoragePort {
+  readonly available: boolean;
+  /** Max bytes of one item (key + JSON value); 8192 in Chrome. */
+  readonly QUOTA_BYTES_PER_ITEM: number;
+  get<T>(key: string): Promise<T | undefined>;
+  set(items: Record<string, unknown>): Promise<void>;
+  remove(keys: string | string[]): Promise<void>;
+  /** Changes of the "sync" area (remote devices and our own writes alike). */
+  onChanged(
+    cb: (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>) => void,
+  ): () => void;
+}
+
 export interface TabsPort {
   query(filter: {
     windowId?: number;
@@ -68,6 +86,7 @@ export interface RuntimePort {
 export interface Ports {
   local: StoragePort;
   session: StoragePort;
+  sync: SyncStoragePort;
   tabs: TabsPort;
   windows: WindowsPort;
   alarms: AlarmsPort;

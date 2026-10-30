@@ -20,6 +20,11 @@
  * rejects, every later call through its ports hangs forever, and its listeners are dropped.
  * Storage and tabs persist; tests then create fresh services from `fake.ports()`.
  * `restartBrowser({ keepTabs })` models a (possibly partial) session restore.
+ *
+ * storage.sync: an in-memory area (`fake.sync`) that survives restarts, rejects items over
+ * QUOTA_BYTES_PER_ITEM like Chrome, fires onChanged for our own writes too, and
+ * `remoteSyncChange()` simulates another device writing; `syncAvailable = false` models a
+ * browser without the sync area.
  */
 import type { Color } from "../core/model/types";
 import type { LiveGroup, LiveTab, LiveWindow } from "../core/ops/types";
@@ -32,7 +37,7 @@ import type {
   TabRemoveInfo,
 } from "./events";
 import { liveTabUrl } from "./tab-url";
-import type { StoragePort } from "./types";
+import type { StoragePort, SyncStoragePort } from "./types";
 
 export type FailOp =
   | "storage.get"
@@ -41,6 +46,9 @@ export type FailOp =
   | "session.get"
   | "session.set"
   | "session.remove"
+  | "sync.get"
+  | "sync.set"
+  | "sync.remove"
   | "tabs.query"
   | "tabs.get"
   | "tabs.create"
@@ -125,7 +133,8 @@ type EventName =
   | "alarm"
   | "command"
   | "storage:local"
-  | "storage:session";
+  | "storage:session"
+  | "storage:sync";
 
 interface Listener {
   gen: number;
@@ -165,6 +174,11 @@ export class FakeBrowser {
   private groupMap = new Map<number, FakeGroup>();
   readonly local = new Map<string, unknown>();
   readonly session = new Map<string, unknown>();
+  /** storage.sync contents (persist across worker kills and browser restarts). */
+  readonly sync = new Map<string, unknown>();
+  /** false: the browser has no storage.sync area (port reports unavailable, calls reject). */
+  syncAvailable = true;
+  readonly syncQuotaPerItem = 8192;
   readonly alarms = new Map<
     string,
     { periodInMinutes?: number; delayInMinutes?: number; when?: number }
@@ -266,6 +280,17 @@ export class FakeBrowser {
       }
       this.order.set(wid, ids);
     }
+  }
+
+  /** Another device wrote (or removed, with `undefined`) a storage.sync item. */
+  remoteSyncChange(key: string, value: unknown): void {
+    const oldValue = clone(this.sync.get(key));
+    if (value === undefined) this.sync.delete(key);
+    else this.sync.set(key, clone(value));
+    const change: { oldValue?: unknown; newValue?: unknown } = {};
+    if (oldValue !== undefined) change.oldValue = oldValue;
+    if (value !== undefined) change.newValue = clone(value);
+    this.emit("storage:sync", { [key]: change });
   }
 
   advance(ms: number): void {
@@ -503,6 +528,52 @@ export class FakeBrowser {
       };
     };
 
+    const unavailable = () => {
+      if (!this.syncAvailable) throw new Error("storage.sync is unavailable");
+    };
+    const isAvailable = () => this.syncAvailable;
+    const sync: SyncStoragePort = {
+      get available() {
+        return isAvailable();
+      },
+      QUOTA_BYTES_PER_ITEM: this.syncQuotaPerItem,
+      get: <T>(key: string) =>
+        gate("sync.get", key, () => {
+          unavailable();
+          return clone(this.sync.get(key)) as T | undefined;
+        }),
+      set: (items) =>
+        gate("sync.set", items, () => {
+          unavailable();
+          for (const [k, v] of Object.entries(items)) {
+            const bytes = new TextEncoder().encode(k + JSON.stringify(v)).length;
+            if (bytes > this.syncQuotaPerItem) {
+              throw new Error("QUOTA_BYTES_PER_ITEM quota exceeded");
+            }
+          }
+          const changes: Record<string, { oldValue?: unknown; newValue?: unknown }> = {};
+          for (const [k, v] of Object.entries(items)) {
+            if (v === undefined) continue;
+            changes[k] = { oldValue: clone(this.sync.get(k)), newValue: clone(v) };
+            this.sync.set(k, clone(v));
+          }
+          this.emit("storage:sync", changes);
+        }),
+      remove: (keys) =>
+        gate("sync.remove", keys, () => {
+          unavailable();
+          const list = typeof keys === "string" ? [keys] : keys;
+          const changes: Record<string, { oldValue?: unknown; newValue?: unknown }> = {};
+          for (const k of list) {
+            if (!this.sync.has(k)) continue;
+            changes[k] = { oldValue: clone(this.sync.get(k)) };
+            this.sync.delete(k);
+          }
+          if (Object.keys(changes).length > 0) this.emit("storage:sync", changes);
+        }),
+      onChanged: (cb) => this.on(g, "storage:sync", cb),
+    };
+
     const events: EventsPort = {
       onTabCreated: (cb) => this.on(g, "tabCreated", cb),
       onTabUpdated: (cb) => this.on(g, "tabUpdated", cb),
@@ -542,6 +613,7 @@ export class FakeBrowser {
     return {
       local: storage("local"),
       session: storage("session"),
+      sync,
       tabs: {
         query: (filter) =>
           gate("tabs.query", filter, () =>

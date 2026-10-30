@@ -16,6 +16,7 @@ import { Keys, LIMITS } from "../core/model/types";
 import { captureUrl, classifyUrl, isBlankPageUrl, unwrapUrl } from "../core/ops/url";
 import { RpcError } from "../messaging/errors";
 import { PayloadSchemas } from "../messaging/schemas";
+import { importBookmarks } from "./bookmarks-import";
 import type { CommandRouter } from "./command-router";
 import { BG_PREFIX, BgKeys } from "./keys";
 import { Lane } from "./lanes";
@@ -226,6 +227,19 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
   );
 
   router.register(
+    "tabs.suspend",
+    S["tabs.suspend"],
+    async (p) => {
+      // The lane depends on the tab's window, which only a lookup can tell: resolve it here
+      // (holding no lane), then run in window:<id>; suspendOne re-reads the tab inside.
+      const tab = await ports.tabs.get(p.tabId);
+      if (!tab) throw new RpcError("not_found", `tab ${p.tabId} not found`);
+      return ctx.lanes.run([Lane.window(tab.windowId)], () => s.suspender.suspendOne(p.tabId));
+    },
+    () => [],
+  );
+
+  router.register(
     "tabs.closeDuplicates",
     S["tabs.closeDuplicates"],
     (p) => s.suspender.closeDuplicates(p.windowId),
@@ -236,7 +250,12 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
   router.register(
     "session.restore",
     S["session.restore"],
-    (p) => s.sessionGuard.restore(p.generation),
+    async (p) => {
+      const out = await s.sessionGuard.restore(p.generation);
+      // The user acted on the recovery screen: the "window not restored" hint is done.
+      await repo.remove(BgKeys.recoveryHint).catch((e) => ctx.log.warn(e));
+      return out;
+    },
     () => [Lane.sessions],
   );
 
@@ -321,14 +340,36 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
         merged[k] = isPlainObject(prev) && isPlainObject(val) ? { ...prev, ...val } : val;
       }
       merged.rev = cur.rev + 1;
+      merged.updatedAt = ports.now();
       const next: Settings = parseSettings(merged);
       await repo.setMany({ [Keys.settings]: next });
       const recreate =
         next.sessions.everyMinutes !== cur.sessions.everyMinutes ? ["session-gen"] : [];
       await repairAlarms(ctx, next, recreate).catch((e) => ctx.log.warn(e));
-      return next;
+      // Sync (push; turning it on pulls first, and an applied pull repairs alarms itself).
+      // Never fails the update: errors are recorded in sync:status.
+      return s.settingsSync.afterUpdate(cur, next).catch((e: unknown) => {
+        ctx.log.warn("[tabitat] settings sync failed", e);
+        return next;
+      });
     },
     () => [Lane.key(Keys.settings)],
+  );
+
+  router.register(
+    "settings.syncNow",
+    S["settings.syncNow"],
+    () => s.settingsSync.syncNow(),
+    () => [Lane.key(Keys.settings)],
+  );
+
+  // ---------------------------------------------------------------- bookmarks import
+  router.register(
+    "import.bookmarks",
+    S["import.bookmarks"],
+    (p) => importBookmarks(ctx, p.entries, p.target),
+    (p) =>
+      p.target.kind === "quicklinks" ? [Lane.key(Keys.quicklinks)] : [Lane.wsIndex, Lane.wsMeta],
   );
 
   // ---------------------------------------------------------------- trash
@@ -455,6 +496,16 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
       return removed;
     },
     // abandon() appends entries from inside a switch's lanes: exclusive (rare, user-initiated).
+    () => [Lane.global],
+  );
+
+  router.register(
+    "recovery.dismissHint",
+    S["recovery.dismissHint"],
+    async () => {
+      await repo.remove(BgKeys.recoveryHint);
+      return null;
+    },
     () => [Lane.global],
   );
 

@@ -9,7 +9,8 @@
  *  3. resolve an interrupted import (`import:staging`) before anything else may write: replay
  *     it (revision-aware); after two failed replays it moves to `import:failed`
  *  4. op journal replay: canResume => resume, else abandon to `recovery:pending` (nothing deleted)
- *  5. window reconciliation (windows:* records, sessionEpoch)
+ *  5. window reconciliation (windows:* records, sessionEpoch; `recovery:hint` after a restart)
+ *  5b. settings sync pull (best-effort; a newer remote copy is applied before alarm repair)
  *  6. alarm repair
  *  7. flush windows left dirty by a killed worker
  *  8. a session generation (never from an all-empty state)
@@ -27,6 +28,7 @@ import type { BackupService } from "./backup";
 import type { BgContext } from "./context";
 import { reconcileWindows } from "./reconciler";
 import type { SessionGuard } from "./session-guard";
+import type { SettingsSync } from "./settings-sync";
 import type { TabTracker } from "./tab-tracker";
 import type { WorkspaceEngine } from "./workspace-engine";
 
@@ -147,6 +149,7 @@ export interface InitDeps {
   sessionGuard: SessionGuard;
   backup: BackupService;
   flavor: Flavor;
+  settingsSync?: SettingsSync;
 }
 
 export interface InitReport {
@@ -246,9 +249,18 @@ export async function runInit(d: InitDeps): Promise<InitReport> {
     report.matches = (
       await reconcileWindows(ctx, windows, {
         takeStorageGeneration: () => d.sessionGuard.takeFromStorage(),
+        browserRestart: report.contextReset,
       })
     ).matches;
   });
+
+  // 5b. settings sync (best-effort: never blocks startup)
+  if (d.settingsSync) {
+    const sync = d.settingsSync;
+    await step("sync", async () => {
+      await sync.pull();
+    });
+  }
 
   // 6. alarms
   await step("alarms", async () => {

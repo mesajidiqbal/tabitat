@@ -5,6 +5,7 @@
  * `fake.killWorker()` to simulate a worker restart.
  */
 import type { Flavor } from "../core/model/types";
+import { Keys } from "../core/model/types";
 import type { BgPorts, Unsubscribe } from "../platform/events";
 import { BackupService } from "./backup";
 import { Badge } from "./badge";
@@ -17,6 +18,7 @@ import { POMODORO_ALARM, PomodoroService } from "./pomodoro";
 import { ALARMS, type InitReport, ReadyBarrier, type ReadyState, runInit } from "./ready";
 import { type Logger, Repository } from "./repository";
 import { SessionGuard } from "./session-guard";
+import { SettingsSync } from "./settings-sync";
 import { Suspender } from "./suspender";
 import { TabTracker } from "./tab-tracker";
 import { type EngineHooks, switchLanes, WorkspaceEngine } from "./workspace-engine";
@@ -42,6 +44,7 @@ export interface Services {
   sessionGuard: SessionGuard;
   backup: BackupService;
   suspender: Suspender;
+  settingsSync: SettingsSync;
   pomodoro: PomodoroService;
   badge: Badge;
   shortcuts: Shortcuts;
@@ -122,6 +125,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
     hasRunningOps: () => engine.hasRunningOps(),
   });
   const suspender = new Suspender(ctx, { isLocked: (w) => engine.isLocked(w) });
+  const settingsSync = new SettingsSync(ctx);
   const pomodoro = new PomodoroService(ctx);
   const router = new CommandRouter({
     lanes,
@@ -152,6 +156,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
     sessionGuard: guardRef,
     backup,
     suspender,
+    settingsSync,
     pomodoro,
     badge,
     shortcuts,
@@ -171,6 +176,11 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
           // Synchronous: side panel / popup must open inside the gesture.
           void shortcuts.handle(command, tab).catch((e) => log.error("[tabitat] command", e));
         }),
+        // Remote settings changes: pulled in lane key:settings once init is done.
+        settingsSync.start(async (pull) => {
+          if ((await readyOrRetry()).degraded) return;
+          await lanes.run([Lane.key(Keys.settings)], pull);
+        }),
       );
     },
     init() {
@@ -182,6 +192,7 @@ export function createServices(ports: BgPorts, opts: ServiceOptions = {}): Servi
           tracker: trackerRef,
           sessionGuard: guardRef,
           backup,
+          settingsSync,
           flavor: opts.flavor ?? "default",
         });
       });

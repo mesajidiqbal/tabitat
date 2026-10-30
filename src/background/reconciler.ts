@@ -12,15 +12,22 @@
  * before any similarity-based assignment, the windows record gets `provisional: true`, and the
  * workspace's pre-reconciliation tabs are kept under `ws:prev:<id>` (only if none is kept yet). Nothing is deleted but
  * stale pointers.
+ * After a worker-context reset (browser restart) it also maintains `recovery:hint`: windows of
+ * the latest session generation that no live window accounts for (PHASE3 §1).
  */
 
-import type { WindowState } from "../core/model/types";
+import type { SessionGeneration, WindowState } from "../core/model/types";
 import { KEY_PREFIX, Keys } from "../core/model/types";
 import type { LiveWindow } from "../core/ops/types";
-import { matchWindows, type WindowMatch } from "../core/reconcile/matcher";
+import {
+  countUnmatchedSessionWindows,
+  matchWindows,
+  type WindowMatch,
+} from "../core/reconcile/matcher";
 import type { BgContext } from "./context";
+import { BgKeys, type RecoveryHint } from "./keys";
 import { hasOwnKey } from "./own";
-import type { Workspace } from "./repository";
+import type { Repository, Workspace } from "./repository";
 
 export interface ReconcileResult {
   matches: WindowMatch[];
@@ -31,6 +38,42 @@ export interface ReconcileResult {
 export interface ReconcileDeps {
   /** Writes a session generation from storage alone (SessionGuard.takeFromStorage). */
   takeStorageGeneration?(): Promise<unknown>;
+  /**
+   * The worker context was reset (storage.session epoch missing: browser restart, or extension
+   * reload/update). Enables the `recovery:hint` check.
+   */
+  browserRestart?: boolean;
+}
+
+/** Newest generation that has live windows (skips storage-only generations, windowId 0). */
+async function latestLiveGeneration(repo: Repository): Promise<SessionGeneration | null> {
+  for (const n of [...(await repo.getSessionsIndex())].reverse()) {
+    const gen = await repo.getSessionGen(n);
+    if (gen?.windows.some((w) => w.windowId !== 0)) return gen;
+  }
+  return null;
+}
+
+/** Writes `recovery:hint` when windows of `gen` went missing, else removes a stale one. */
+async function updateRecoveryHint(
+  ctx: BgContext,
+  gen: SessionGeneration | null,
+  windows: readonly LiveWindow[],
+  owned: ReadonlySet<string>,
+): Promise<void> {
+  const unmatched = gen
+    ? countUnmatchedSessionWindows(gen, windows, owned, { placeholderBase: ctx.placeholderBase })
+    : 0;
+  if (gen && unmatched > 0) {
+    const hint: RecoveryHint = {
+      generation: gen.id,
+      unmatchedWindows: unmatched,
+      at: ctx.ports.now(),
+    };
+    await ctx.repo.setMany({ [BgKeys.recoveryHint]: hint });
+  } else if ((await ctx.ports.local.get(BgKeys.recoveryHint)) !== undefined) {
+    await ctx.repo.remove(BgKeys.recoveryHint);
+  }
 }
 
 export async function reconcileWindows(
@@ -39,6 +82,14 @@ export async function reconcileWindows(
   deps: ReconcileDeps = {},
 ): Promise<ReconcileResult> {
   const { repo, ports } = ctx;
+  // Read before reconciliation may add a storage-only generation.
+  let hintGen: SessionGeneration | null = null;
+  if (deps.browserRestart) {
+    hintGen = await latestLiveGeneration(repo).catch((e: unknown) => {
+      ctx.log.warn("[tabitat] could not read the latest session generation", e);
+      return null;
+    });
+  }
   const states = await repo.listWindowStates();
   const live = new Map(windows.map((w) => [w.id, w]));
   const valid = new Map<number, WindowState>();
@@ -139,6 +190,16 @@ export async function reconcileWindows(
     (k) => !live.has(Number(k.slice(KEY_PREFIX.dirty.length))),
   );
   if (stale.length + dirty.length > 0) await repo.remove([...stale, ...dirty]);
+  if (deps.browserRestart) {
+    const active = new Set<string>();
+    for (const w of windows) {
+      const st = (writes[Keys.window(w.id)] as WindowState | undefined) ?? valid.get(w.id);
+      if (st?.activeWorkspaceId) active.add(st.activeWorkspaceId);
+    }
+    await updateRecoveryHint(ctx, hintGen, windows, active).catch((e: unknown) =>
+      ctx.log.warn("[tabitat] recovery hint update failed", e),
+    );
+  }
   return {
     matches: [...heuristic, ...matches.filter((m) => m.workspaceId === null)],
     kept: [...valid.keys()],

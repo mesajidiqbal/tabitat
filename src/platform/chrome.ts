@@ -7,7 +7,15 @@ import type { LiveGroup, LiveTab, LiveWindow } from "../core/ops/types";
 import { isNoTabError } from "./errors";
 import type { BgPorts, EventsPort, ShellPort, TabChangeInfo } from "./events";
 import { liveTabUrl } from "./tab-url";
-import type { AlarmsPort, Ports, RuntimePort, StoragePort, TabsPort, WindowsPort } from "./types";
+import type {
+  AlarmsPort,
+  Ports,
+  RuntimePort,
+  StoragePort,
+  SyncStoragePort,
+  TabsPort,
+  WindowsPort,
+} from "./types";
 
 export function toLiveTab(tab: chrome.tabs.Tab): LiveTab | null {
   if (tab.id === undefined || tab.id < 0) return null;
@@ -73,6 +81,50 @@ export function createStoragePort(area: "local" | "session"): StoragePort {
       ): void => {
         if (areaName === area) cb(changes);
       };
+      chrome.storage.onChanged.addListener(listener);
+      return () => chrome.storage.onChanged.removeListener(listener);
+    },
+  };
+}
+
+/** Chrome's documented per-item limit, used when the API does not expose it. */
+const DEFAULT_SYNC_QUOTA_PER_ITEM = 8192;
+
+export function createSyncStoragePort(): SyncStoragePort {
+  const area = (): chrome.storage.SyncStorageArea | undefined =>
+    (chrome.storage as { sync?: chrome.storage.SyncStorageArea } | undefined)?.sync;
+  const need = (): chrome.storage.SyncStorageArea => {
+    const a = area();
+    if (!a) throw new Error("storage.sync is unavailable");
+    return a;
+  };
+  return {
+    get available() {
+      return area() !== undefined;
+    },
+    get QUOTA_BYTES_PER_ITEM() {
+      return area()?.QUOTA_BYTES_PER_ITEM ?? DEFAULT_SYNC_QUOTA_PER_ITEM;
+    },
+    async get<T>(key: string): Promise<T | undefined> {
+      const res = await need().get(key);
+      return res[key] as T | undefined;
+    },
+    async set(items) {
+      await need().set(items);
+    },
+    async remove(keys) {
+      const list = typeof keys === "string" ? [keys] : keys;
+      if (list.length === 0) return;
+      await need().remove(list);
+    },
+    onChanged(cb) {
+      const listener = (
+        changes: Record<string, chrome.storage.StorageChange>,
+        areaName: string,
+      ): void => {
+        if (areaName === "sync") cb(changes);
+      };
+      if (!chrome.storage?.onChanged) return () => {};
       chrome.storage.onChanged.addListener(listener);
       return () => chrome.storage.onChanged.removeListener(listener);
     },
@@ -209,6 +261,7 @@ export function createChromePorts(): Ports {
   return {
     local: createStoragePort("local"),
     session: createStoragePort("session"),
+    sync: createSyncStoragePort(),
     tabs: createTabsPort(),
     windows: createWindowsPort(),
     alarms: createAlarmsPort(),

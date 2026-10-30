@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildPlaceholderUrl } from "../ops/url";
 import { BASE, liveWindow, savedTab, workspaceMeta, workspaceTabs } from "../testing/fixtures";
-import { jaccard, matchWindows } from "./matcher";
+import { countUnmatchedSessionWindows, jaccard, matchWindows } from "./matcher";
 
 const ws = (id: string, urls: string[]) => ({
   meta: workspaceMeta(id),
@@ -164,5 +164,31 @@ describe("matchWindows", () => {
       "similarity",
       "conflict",
     ]);
+  });
+});
+
+describe("countUnmatchedSessionWindows", () => {
+  const sw = (windowId: number, workspaceId: string | null, urls: string[]) => ({
+    windowId,
+    workspaceId,
+    tabs: urls.map((url, i) => savedTab({ id: `${windowId}-${i}`, url })),
+  });
+  const gen = (...windows: ReturnType<typeof sw>[]) => ({ id: 3, takenAt: 1, windows });
+
+  it("counts windows neither owned by a live window nor similar to one", () => {
+    const g = gen(
+      sw(1, "A", ["https://a1.com", "https://a2.com"]),
+      sw(2, null, ["https://b1.com", "https://b2.com"]),
+      sw(3, "C", ["https://c1.com"]),
+      sw(4, null, ["chrome://newtab/", "about:blank"]),
+      sw(0, "D", ["https://d1.com"]),
+    );
+    const live = [
+      liveWindow([{ url: ph("B", "https://b1.com") }, { url: "https://b2.com/" }], [], 9),
+    ];
+    // A is owned; window 2 matches by URLs (placeholder unwrapped); 3 is lost; blank and
+    // storage-only (windowId 0) windows are ignored.
+    expect(countUnmatchedSessionWindows(g, live, new Set(["A"]), opts)).toBe(1);
+    expect(countUnmatchedSessionWindows(g, [], new Set(), opts)).toBe(3);
   });
 });

@@ -5,7 +5,9 @@
  */
 
 import type { LiveTab } from "../core/ops/types";
+import { isPlaceholderUrl, schemeOf } from "../core/ops/url";
 import { eligibleForDiscard, findDuplicates } from "../core/suspend/rules";
+import { RpcError } from "../messaging/errors";
 import type { BgContext } from "./context";
 import { removeTabsSafely } from "./tab-utils";
 
@@ -62,6 +64,44 @@ export class Suspender {
         eligibleForDiscard({ ...t, lastAccessed: t.lastAccessed ?? 0 }, rules, now, opts),
       ),
     );
+  }
+
+  /**
+   * `tabs.suspend`: discards one tab now, whatever its idle time and the whitelist (the user
+   * asked). `not_found` / `busy` (switch op in its window) / `invalid` (active, pinned, audible,
+   * already discarded, a placeholder, or not http(s)). Caller holds lane `window:<windowId>`.
+   */
+  async suspendOne(tabId: number): Promise<null> {
+    const { ports } = this.ctx;
+    const tab = await ports.tabs.get(tabId);
+    if (!tab) throw new RpcError("not_found", `tab ${tabId} not found`);
+    if (await this.deps.isLocked(tab.windowId)) {
+      throw new RpcError("busy", "a switch is running in this window");
+    }
+    const settings = await this.ctx.repo.getSettings();
+    const rules = { ...settings.suspend, afterMinutes: 0, whitelist: [] };
+    const opts = { placeholderBase: this.ctx.placeholderBase };
+    const probe = { ...tab, lastAccessed: tab.lastAccessed ?? 0 };
+    if (!eligibleForDiscard(probe, rules, ports.now(), opts)) {
+      throw new RpcError("invalid", `this tab cannot be suspended (${this.whyNot(tab)})`);
+    }
+    try {
+      await ports.tabs.discard(tabId);
+    } catch (e) {
+      if (!(await ports.tabs.get(tabId))) throw new RpcError("not_found", `tab ${tabId} closed`);
+      throw e;
+    }
+    return null;
+  }
+
+  private whyNot(tab: LiveTab): string {
+    if (tab.active) return "active";
+    if (tab.pinned) return "pinned";
+    if (tab.audible) return "audible";
+    if (tab.discarded) return "already suspended";
+    if (isPlaceholderUrl(tab.url, this.ctx.placeholderBase)) return "placeholder";
+    const scheme = schemeOf(tab.url);
+    return scheme === "http:" || scheme === "https:" ? "no host" : "not a web page";
   }
 
   /** Closes duplicate tabs (keeps the active / most recent one). Returns the number closed. */

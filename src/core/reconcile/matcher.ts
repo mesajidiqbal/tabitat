@@ -2,7 +2,7 @@
  * Startup reconciliation: match live windows (new ids after a browser restart) to saved
  * workspaces (ARCHITECTURE §5.5). Pure.
  */
-import type { WorkspaceId, WorkspaceMeta, WorkspaceTabs } from "../model/types";
+import type { SessionGeneration, WorkspaceId, WorkspaceMeta, WorkspaceTabs } from "../model/types";
 import type { LiveWindow } from "../ops/types";
 import {
   captureUrl,
@@ -133,4 +133,48 @@ export function matchWindows(
     }
     return { windowId: p.windowId, workspaceId: null, reason: "conflict" };
   });
+}
+
+/** Normalized URL set of a live window's non-pinned, non-blank tabs (placeholders unwrapped). */
+function liveUrlSet(window: LiveWindow, base: string): Set<string> {
+  const out = new Set<string>();
+  for (const tab of window.tabs) {
+    if (tab.pinned) continue;
+    const raw = captureUrl(tab);
+    const url = parsePlaceholderUrl(raw, base)?.u ?? raw;
+    if (url.trim() === "" || isBlankPageUrl(url)) continue;
+    out.add(normalizeForMatch(url));
+  }
+  return out;
+}
+
+/**
+ * How many windows of a session generation (the "recovery hint", PHASE3 §1) no live window
+ * accounts for after startup reconciliation. A generation window counts when it has at least one
+ * non-blank tab and neither (a) its workspace is now active in a live window (`ownedWorkspaces`)
+ * nor (b) some live window's URL set is at least SIMILARITY_THRESHOLD similar to its own.
+ * Storage-only windows (windowId 0, written by reconciliation itself) are ignored.
+ */
+export function countUnmatchedSessionWindows(
+  gen: SessionGeneration,
+  live: readonly LiveWindow[],
+  ownedWorkspaces: ReadonlySet<WorkspaceId>,
+  opts: { placeholderBase: string },
+): number {
+  const liveSets = live.map((w) => liveUrlSet(w, opts.placeholderBase));
+  let unmatched = 0;
+  for (const w of gen.windows) {
+    if (w.windowId === 0) continue;
+    const urls = new Set(
+      w.tabs
+        .map((t) => t.url)
+        .filter((u) => u.trim() !== "" && !isBlankPageUrl(u))
+        .map(normalizeForMatch),
+    );
+    if (urls.size === 0) continue;
+    if (w.workspaceId !== null && ownedWorkspaces.has(w.workspaceId)) continue;
+    if (liveSets.some((set) => jaccard(urls, set) >= SIMILARITY_THRESHOLD)) continue;
+    unmatched++;
+  }
+  return unmatched;
 }
