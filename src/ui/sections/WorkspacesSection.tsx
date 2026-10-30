@@ -1,18 +1,15 @@
-/** WORKSPACES: inline form, switch progress, inline error, listbox of rows (popup) or cards. */
-import { isBlankPageUrl } from "@/core/ops/url";
+/** WORKSPACES: inline form and the listbox of rows (popup) or cards. */
 import { t } from "@/i18n";
-import { newWorkspaceOpen, uiError } from "../actions";
+import { newWorkspaceOpen } from "../actions";
 import c from "../components/controls.module.css";
 import { EmptyState } from "../components/EmptyState";
-import { IconButton } from "../components/IconButton";
-import { ProgressRow } from "../components/ProgressRow";
 import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { WorkspaceForm } from "../components/WorkspaceForm";
 import { WorkspaceRow } from "../components/WorkspaceRow";
 import { useRoving } from "../hooks/useRoving";
-import { IconClose, IconPlus } from "../icons";
-import { activeWorkspaceId, busy, owners, store, workspaces } from "../store";
+import { IconPlus } from "../icons";
+import { activeWorkspaceId, busy, liveTabCount, owners, store, workspaces } from "../store";
 import s from "./sections.module.css";
 
 export const WS_LIST_ID = "ws-list";
@@ -23,7 +20,8 @@ export function WorkspacesSection(p: { variant: "popup" | "panel"; onExitTop?: (
   const own = owners.value;
   const w = store.windowId.value;
   const tabs = store.wsTabs.value;
-  const liveCount = store.liveTabs.value.filter((x) => !x.pinned && !isBlankPageUrl(x.url)).length;
+  const liveCount = liveTabCount.value;
+  const ready = store.ready.value;
   const roving = useRoving(list.length, p.onExitTop ? { onExitTop: p.onExitTop } : {});
   const panel = p.variant === "panel";
   return (
@@ -41,19 +39,8 @@ export function WorkspacesSection(p: { variant: "popup" | "panel"; onExitTop?: (
         </button>
       </SectionHeader>
       {newWorkspaceOpen.value && <WorkspaceForm onClose={() => (newWorkspaceOpen.value = false)} />}
-      <ProgressRow />
-      {uiError.value && (
-        <p class={c.error} role="alert">
-          <span>{uiError.value}</span>
-          <IconButton
-            label={t("dismiss")}
-            icon={<IconClose size={14} />}
-            onClick={() => (uiError.value = null)}
-          />
-        </p>
-      )}
       {list.length === 0 ? (
-        <EmptyState title={t("noWorkspacesTitle")} hint={t("noWorkspacesHint")} />
+        ready && <EmptyState title={t("noWorkspacesTitle")} hint={t("noWorkspacesHint")} />
       ) : (
         <div id={WS_LIST_ID} role="listbox" aria-labelledby="ws-h" class={panel ? r.cards : r.list}>
           {list.map((m, i) => (

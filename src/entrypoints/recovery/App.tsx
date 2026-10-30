@@ -1,5 +1,6 @@
 /** Recovery page (UI-SPEC §Recovery): interrupted switch, sessions, quarantine, trash, import. */
 import { t } from "@/i18n";
+import { ErrorBoundary } from "@/ui/components/ErrorBoundary";
 import { Toast } from "@/ui/components/Toast";
 import { Logo } from "@/ui/icons";
 import { useStore } from "@/ui/store";
@@ -21,11 +22,21 @@ export function App() {
           <p class={s.lead}>{t("recoveryLead")}</p>
         </div>
       </div>
-      <Interrupted />
-      <Sessions />
-      <Quarantine />
-      <TrashSection />
-      <ImportSection />
+      <ErrorBoundary name={t("interruptedTitle")}>
+        <Interrupted />
+      </ErrorBoundary>
+      <ErrorBoundary name={t("sessionsTitle")}>
+        <Sessions />
+      </ErrorBoundary>
+      <ErrorBoundary name={t("quarantineTitle")}>
+        <Quarantine />
+      </ErrorBoundary>
+      <ErrorBoundary name={t("trashTitle")}>
+        <TrashSection />
+      </ErrorBoundary>
+      <ErrorBoundary name={t("importTitle")}>
+        <ImportSection />
+      </ErrorBoundary>
       <Toast />
     </main>
   );

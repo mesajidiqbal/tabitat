@@ -2,11 +2,11 @@
 import { useEffect, useState } from "preact/hooks";
 import { plural, t } from "@/i18n";
 import { send } from "@/messaging/client";
-import { errorText } from "@/ui/actions";
 import c from "@/ui/components/controls.module.css";
 import { absTime, downloadJson } from "@/ui/format";
+import { shouldApplyInitial } from "@/ui/hooks/useStorageKey";
 import s from "./recovery.module.css";
-import { ConfirmButton, type Status, StatusLine } from "./shared";
+import { ConfirmButton, errStatus, type Status, StatusLine } from "./shared";
 
 const PREFIX = "corrupt:";
 
@@ -14,12 +14,16 @@ const PREFIX = "corrupt:";
 function useCorrupt(): Record<string, unknown> {
   const [recs, setRecs] = useState<Record<string, unknown>>({});
   useEffect(() => {
+    // A change that arrives before the initial read resolves is newer: the read is dropped.
+    let seenChange = false;
     void chrome.storage.local.get(null).then((all) => {
+      if (!shouldApplyInitial(seenChange)) return;
       setRecs(Object.fromEntries(Object.entries(all).filter(([k]) => k.startsWith(PREFIX))));
     });
     const onChange = (ch: Record<string, chrome.storage.StorageChange>, area: string) => {
       const keys = Object.keys(ch).filter((k) => k.startsWith(PREFIX));
       if (area !== "local" || keys.length === 0) return;
+      seenChange = true;
       setRecs((prev) => {
         const next = { ...prev };
         for (const k of keys) {
@@ -46,7 +50,7 @@ export function Quarantine() {
   const purge = () =>
     send("system.purgeCorrupt", {}).then(
       (n) => setStatus({ kind: "ok", text: plural(n, "deletedRecordsOne", "deletedRecordsMany") }),
-      (e: unknown) => setStatus({ kind: "err", text: errorText(e) }),
+      (e: unknown) => setStatus(errStatus(e)),
     );
   return (
     <section class={s.card} aria-labelledby="q-h">

@@ -6,12 +6,12 @@ import { activateTab, attempt } from "../actions";
 import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { TabGroupHeader } from "../components/TabGroupHeader";
-import { TabRow } from "../components/TabRow";
+import { type RowAction, TabRow } from "../components/TabRow";
 import { showToast } from "../components/Toast";
 import { useRoving } from "../hooks/useRoving";
 import { IconClose, IconPark } from "../icons";
 import { activeWorkspaceId, busy, store } from "../store";
-import { tabRuns, type UiTab } from "../tabs";
+import { buildTabNodes, tabRuns, type UiTab } from "../tabs";
 import { colorVar } from "../theme";
 import s from "./sections.module.css";
 import { WindowActions } from "./WindowActions";
@@ -21,14 +21,19 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
   const ws = activeWorkspaceId.value;
   const [collapsed, setCollapsed] = useState<Record<number, boolean>>({});
   const runs = tabRuns(tabs, store.groups.value);
-  const visible = runs.flatMap((run) => (run.group && collapsed[run.groupId] ? [] : run.tabs));
-  const pos = new Map(visible.map((tab, i) => [tab.id, i]));
-  const roving = useRoving(visible.length);
+  const nodes = buildTabNodes(runs, collapsed);
+  const tabPos = new Map<number, number>();
+  const headerPos = new Map<number, number>();
+  nodes.forEach((n, i) => {
+    if (n.kind === "tab") tabPos.set(n.tab.id, i);
+    else headerPos.set(n.groupId, i);
+  });
+  const roving = useRoving(nodes.length);
   const disabled = busy.value;
   const panel = p.variant === "panel";
 
   const row = (tab: UiTab, inGroup: boolean) => {
-    const actions = [
+    const actions: RowAction[] = [
       {
         label: t("closeTab"),
         icon: <IconClose size={14} />,
@@ -44,7 +49,7 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
           void attempt(() => send("tabs.park", { tabId: tab.id, workspaceId: ws })).then(
             (link) => link && showToast({ message: t("parked", link.title || link.url) }),
           ),
-        del: false,
+        key: "p",
       });
     }
     return (
@@ -52,7 +57,7 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
         key={tab.id}
         title={tab.title}
         url={tab.url}
-        item={roving.item(pos.get(tab.id) ?? -1)}
+        item={roving.item(tabPos.get(tab.id) ?? -1)}
         onOpen={() => void activateTab(tab.id, tab.windowId)}
         actions={actions}
         current={tab.active}
@@ -89,6 +94,7 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
                 group={run.group}
                 count={run.tabs.length}
                 collapsed={collapsed[run.groupId] === true}
+                item={roving.item(headerPos.get(run.groupId) ?? -1)}
                 onToggle={() =>
                   setCollapsed({ ...collapsed, [run.groupId]: !collapsed[run.groupId] })
                 }

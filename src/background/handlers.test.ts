@@ -309,3 +309,66 @@ describe("shortcuts and badge", () => {
     expect(h.fake.badges.get(second)).toBe("Z");
   });
 });
+
+describe("recovery screen commands", () => {
+  const entry = (opId: string) => ({
+    opId,
+    windowId: 1,
+    from: null,
+    to: "A",
+    stage: "opening",
+    incoming: [],
+    fromSnapshot: null,
+    reason: "window closed",
+    abandonedAt: 1,
+  });
+  const pending = (h: Awaited<ReturnType<typeof setup>>) =>
+    stored<{ entries: Array<{ opId: string }> }>(h.fake, "recovery:pending");
+
+  it("recovery.dismiss removes a subset, then everything; unknown ids remove nothing", async () => {
+    const h = await setup();
+    h.fake.local.set("recovery:pending", { entries: [entry("a"), entry("b"), entry("c")] });
+
+    expect(await h.ok("recovery.dismiss", { opIds: ["b"] })).toBe(1);
+    expect(pending(h)?.entries.map((e) => e.opId)).toEqual(["a", "c"]);
+
+    expect(await h.ok("recovery.dismiss", { opIds: ["zzz"] })).toBe(0);
+    expect(pending(h)?.entries.map((e) => e.opId)).toEqual(["a", "c"]);
+
+    expect(await h.ok("recovery.dismiss", {})).toBe(2);
+    expect(pending(h)).toBeUndefined();
+    expect(await h.ok("recovery.dismiss", {})).toBe(0);
+  });
+
+  it("recovery.dismiss removes the record when the last entry goes", async () => {
+    const h = await setup();
+    h.fake.local.set("recovery:pending", { entries: [entry("a")] });
+    expect(await h.ok("recovery.dismiss", { opIds: ["a", "unknown"] })).toBe(1);
+    expect(pending(h)).toBeUndefined();
+  });
+
+  it("system.purgeCorrupt defaults to every corrupt:* key and accepts import:failed", async () => {
+    const h = await setup();
+    const rec = { key: "x", raw: 1, error: "bad", at: 1 };
+    h.fake.local.set("corrupt:ws:meta:x", rec);
+    h.fake.local.set("corrupt:settings", rec);
+    h.fake.local.set("import:failed", { reason: "r", error: "e", at: 1 });
+
+    expect(await h.ok("system.purgeCorrupt", {})).toBe(2);
+    expect(stored(h.fake, "corrupt:ws:meta:x")).toBeUndefined();
+    expect(stored(h.fake, "corrupt:settings")).toBeUndefined();
+    expect(stored(h.fake, "import:failed")).toBeDefined();
+    expect(await h.ok("system.purgeCorrupt", {})).toBe(0);
+
+    expect(await h.ok("system.purgeCorrupt", { keys: ["import:failed"] })).toBe(1);
+    expect(stored(h.fake, "import:failed")).toBeUndefined();
+  });
+
+  it("system.purgeCorrupt rejects keys outside the allowed families", async () => {
+    const h = await setup({ before: (f) => seedWorkspace(f, "A", []) });
+    for (const keys of [["ws:meta:A"], ["corrupt:x", "settings"], ["ws:index"]]) {
+      expect(await h.rpc("system.purgeCorrupt", { keys })).toMatchObject({ code: "invalid" });
+    }
+    expect(stored(h.fake, Keys.wsMeta("A"))).toBeDefined();
+  });
+});

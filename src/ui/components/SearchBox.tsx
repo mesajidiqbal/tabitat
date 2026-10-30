@@ -31,7 +31,7 @@ export function SearchBox(p: SearchBoxProps) {
         aria-label={t("searchLabel")}
         aria-autocomplete="list"
         aria-expanded={open}
-        aria-controls={p.listId}
+        aria-controls={open ? p.listId : undefined}
         aria-activedescendant={open ? p.activeId : undefined}
         aria-keyshortcuts="/"
         placeholder={t("searchPlaceholder")}

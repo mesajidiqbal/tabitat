@@ -1,7 +1,8 @@
-/** RECENTLY CLOSED (newest first): click reopens as a tab. Collapsible. */
+/** RECENTLY CLOSED (newest first): click reopens as a tab. Collapsible; "Show all" expands. */
 import { useState } from "preact/hooks";
 import { t } from "@/i18n";
 import { openUrl } from "../actions";
+import c from "../components/controls.module.css";
 import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { TabRow } from "../components/TabRow";
@@ -13,8 +14,9 @@ import s from "./sections.module.css";
 export function ClosedSection(p: { variant: "popup" | "panel" }) {
   const all = store.recentlyClosed.value;
   const [open, setOpen] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const max = p.variant === "popup" ? 5 : 25;
-  const list = all.slice(0, max);
+  const list = showAll ? all : all.slice(0, max);
   const roving = useRoving(open ? list.length : 0);
   if (all.length === 0) return null;
   return (
@@ -43,7 +45,19 @@ export function ClosedSection(p: { variant: "popup" | "panel" }) {
           ))}
         </div>
       )}
-      {open && all.length > max && <p class={s.more}>{t("andMore", all.length - max)}</p>}
+      {open && all.length > max && (
+        <div class={s.more}>
+          <button
+            type="button"
+            class={`${c.btn} ${c.ghost}`}
+            aria-controls="closed-list"
+            aria-expanded={showAll}
+            onClick={() => setShowAll(!showAll)}
+          >
+            {showAll ? t("showLess") : t("showAll", all.length)}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -107,6 +107,9 @@ test("(a) popup renders the workspace list from seeded storage; first paint", as
   await expect(workspaceOption("Alpha")).toBeVisible();
   await expect(workspaceOption("Beta")).toBeVisible();
   await expect(workspaceOption("Beta")).toContainText("3 tabs");
+  await expect
+    .poll(() => page.evaluate(() => performance.getEntriesByName("tabitat:painted").length))
+    .toBe(1);
 
   const timing = await page.evaluate(() => ({
     fcp: performance.getEntriesByName("first-contentful-paint")[0]?.startTime ?? null,
@@ -119,6 +122,9 @@ test("(a) popup renders the workspace list from seeded storage; first paint", as
   expect(timing.rendered).not.toBeNull();
   // UI-SPEC target is 100 ms (p95, CI gate from Phase 4); this only guards against regressions.
   expect(timing.rendered ?? Infinity).toBeLessThan(500);
+  // The frame after render (the first paint with data), relative to navigation start.
+  expect(timing.painted).not.toBeNull();
+  expect(timing.painted ?? Infinity).toBeLessThan(300);
 });
 
 test("(b) creating a workspace from the window via the form updates the list", async () => {

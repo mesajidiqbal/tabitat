@@ -16,7 +16,7 @@ export function SearchResults(p: {
 }) {
   if (p.hits.length === 0) {
     return (
-      <div id={RESULTS_ID} role="listbox" aria-label={t("searchResults")}>
+      <div id={RESULTS_ID} role="status" aria-label={t("searchResults")}>
         <EmptyState title={t("noResults")} hint={t("noResultsHint")} />
       </div>
     );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPlaceholderUrl } from "@/core/ops/url";
-import { duplicateCount, mapTab, tabRuns, type UiTab } from "./tabs";
+import { buildTabNodes, duplicateCount, mapTab, type TabNode, tabRuns, type UiTab } from "./tabs";
 
 const BASE = "chrome-extension://abc/suspended.html";
 
@@ -60,6 +60,27 @@ describe("ui tabs", () => {
       ["Docs", [3, 4]],
       [null, [5]],
     ]);
+  });
+
+  it("builds the roving node list: headers first, collapsed groups hide their tabs", () => {
+    const t = (id: number, groupId: number) =>
+      ({ ...mapTab(chromeTab({ id, index: id }), BASE), groupId }) as UiTab;
+    const groups = {
+      7: { id: 7, title: "Docs", color: "purple", collapsed: false },
+      8: { id: 8, title: "Ops", color: "red", collapsed: false },
+    } as const;
+    const runs = tabRuns([t(1, -1), t(2, 7), t(3, 7), t(4, 8), t(5, -1)], groups);
+    const label = (n: TabNode) => (n.kind === "header" ? `g${n.groupId}` : `t${n.tab.id}`);
+    expect(buildTabNodes(runs, {}).map(label)).toEqual(["t1", "g7", "t2", "t3", "g8", "t4", "t5"]);
+    expect(buildTabNodes(runs, { 7: true }).map(label)).toEqual(["t1", "g7", "g8", "t4", "t5"]);
+    expect(buildTabNodes(runs, { 7: true, 8: true }).map(label)).toEqual(["t1", "g7", "g8", "t5"]);
+    expect(buildTabNodes([], {})).toEqual([]);
+  });
+
+  it("treats a run whose group is unknown as plain tabs (no header)", () => {
+    const tab = { ...mapTab(chromeTab({ id: 9 }), BASE), groupId: 42 } as UiTab;
+    const runs = tabRuns([tab], {});
+    expect(buildTabNodes(runs, { 42: true }).map((n) => n.kind)).toEqual(["tab"]);
   });
 
   it("counts duplicates like the worker (placeholders unwrapped, pinned ignored)", () => {

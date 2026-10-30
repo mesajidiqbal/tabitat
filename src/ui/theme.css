@@ -30,7 +30,7 @@
   --bg-active: #e3e8f2;
   --fg: #1b1d21;
   --fg-muted: #5c6370;
-  --fg-subtle: #8a909c;
+  --fg-subtle: #5f6672; /* ≥ 4.5:1 on --bg, --bg-sunken and --bg-hover */
   --border: #e3e5e9;
   --border-strong: #c9cdd4;
   --accent: #2f6fde;
@@ -68,7 +68,7 @@
     --bg-active: #2c3442;
     --fg: #e7e9ec;
     --fg-muted: #a3a9b4;
-    --fg-subtle: #7b828e;
+    --fg-subtle: #959ca8; /* ≥ 4.5:1 on every dark background token */
     --border: #2b2e35;
     --border-strong: #3c414b;
     --accent: #7aa7ff;
@@ -106,7 +106,7 @@
   --bg-active: #2c3442;
   --fg: #e7e9ec;
   --fg-muted: #a3a9b4;
-  --fg-subtle: #7b828e;
+  --fg-subtle: #959ca8; /* ≥ 4.5:1 on every dark background token */
   --border: #2b2e35;
   --border-strong: #3c414b;
   --accent: #7aa7ff;

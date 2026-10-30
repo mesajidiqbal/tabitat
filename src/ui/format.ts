@@ -1,5 +1,6 @@
 /** Small display helpers (time, hosts, favicons). */
 import { faviconPageUrl } from "@/core/ops/url";
+import { t } from "@/i18n";
 
 let rtf: Intl.RelativeTimeFormat | null = null;
 const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
@@ -53,4 +54,22 @@ export function downloadJson(filename: string, data: unknown): void {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** Saved tabs named in the detail line of an Unsorted card of another window. */
+const PREVIEW_TITLES = 2;
+
+/**
+ * Detail line of an Unsorted card: the first two saved tab titles plus " +N" for the rest
+ * ("GitHub, Gmail +9"); `fallback` (the tab count) when no tab has a title.
+ */
+export function unsortedDetail(
+  tabs: ReadonlyArray<{ title: string; url: string }> | undefined,
+  fallback: string,
+): string {
+  const named = (tabs ?? []).map((x) => x.title.trim() || x.url).filter((x) => x !== "");
+  if (named.length === 0) return fallback;
+  const head = named.slice(0, PREVIEW_TITLES).join(", ");
+  const rest = named.length - PREVIEW_TITLES;
+  return rest > 0 ? t("unsortedPreview", [head, rest]) : head;
 }

@@ -8,31 +8,28 @@ import { plural, t } from "@/i18n";
 import { send } from "@/messaging/client";
 import { RpcError } from "@/messaging/errors";
 import { showToast } from "./components/Toast";
+import { describeError, type ErrorDescription } from "./errors";
 import { activeWorkspaceId, busy, owners, store } from "./store";
 
-/** Inline error line (busy / conflict / limit / …) shown under the workspaces header. */
-export const uiError = signal<string | null>(null);
+/** Inline error line (busy / conflict / limit / …) shown under the search box. */
+export interface UiErrorInfo {
+  /** Localized sentence. */
+  text: string;
+  /** Raw worker / browser message (tooltip). */
+  detail?: string;
+}
+export const uiError = signal<UiErrorInfo | null>(null);
 /** The inline new-workspace form is open. */
 export const newWorkspaceOpen = signal(false);
 
+/** Localized sentence + raw detail for an RpcError (by code) or any other thrown value. */
+export function errorInfo(e: unknown): ErrorDescription {
+  if (e instanceof RpcError) return describeError(e.code, e.message);
+  return describeError("internal", e instanceof Error ? e.message : String(e));
+}
+
 export function errorText(e: unknown): string {
-  if (e instanceof RpcError) {
-    switch (e.code) {
-      case "busy":
-        return t("errBusy");
-      case "conflict":
-        return t("errConflict");
-      case "limit":
-        return t("errLimit", e.message);
-      case "not_found":
-        return t("errNotFound");
-      case "invalid":
-        return t("errInvalid", e.message);
-      default:
-        return t("errInternal", e.message);
-    }
-  }
-  return t("errInternal", e instanceof Error ? e.message : String(e));
+  return errorInfo(e).text;
 }
 
 /** Runs an RPC action; a failure becomes the inline error line and resolves undefined. */
@@ -41,7 +38,7 @@ export async function attempt<T>(fn: () => Promise<T>): Promise<T | undefined> {
   try {
     return await fn();
   } catch (e) {
-    uiError.value = errorText(e);
+    uiError.value = errorInfo(e);
     return undefined;
   }
 }
@@ -63,7 +60,7 @@ export function openSidePanel(): void {
   const w = store.windowId.peek();
   if (w === null) return;
   chrome.sidePanel.open({ windowId: w }).then(closePopup, (e: unknown) => {
-    uiError.value = errorText(e);
+    uiError.value = errorInfo(e);
   });
 }
 
@@ -119,24 +116,27 @@ export async function switchTo(workspaceId: string): Promise<boolean> {
   return res !== undefined;
 }
 
-/** Undo toast for 8 s (trash.restore). */
-export function undoToast(message: string, trashId: string): void {
+/** Undo toast for 8 s (trash.restore); a successful undo is confirmed with a "Restored" toast. */
+export function undoToast(message: string, trashId: string, name: string): void {
   showToast({
     message,
     duration: 8000,
     action: {
       label: t("undo"),
-      run: () => void attempt(() => send("trash.restore", { trashId })),
+      run: () =>
+        void attempt(() => send("trash.restore", { trashId })).then((res) => {
+          if (res !== undefined) showToast({ message: t("restored", name) });
+        }),
     },
   });
 }
 
 export async function deleteWorkspace(id: string, name: string): Promise<void> {
   const res = await attempt(() => send("workspace.delete", { id }));
-  if (res) undoToast(t("deletedWorkspace", name), res.trashId);
+  if (res) undoToast(t("deletedWorkspace", name), res.trashId, name);
 }
 
 export async function removeLink(workspaceId: string, linkId: string, title: string) {
   const res = await attempt(() => send("link.remove", { workspaceId, linkId }));
-  if (res) undoToast(t("removedLink", title), res.trashId);
+  if (res) undoToast(t("removedLink", title), res.trashId, title);
 }

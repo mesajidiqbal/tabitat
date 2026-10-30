@@ -216,38 +216,37 @@
   "dismiss": {
     "message": "Dismiss"
   },
-  "errBusy": {
-    "message": "A switch is already running in this window. Try again in a moment."
-  },
-  "errConflict": {
+  "err_conflict": {
     "message": "That changed somewhere else (or is open in another window). Try again."
   },
-  "errLimit": {
-    "message": "Limit reached: $DETAIL$",
-    "placeholders": {
-      "detail": {
-        "content": "$1"
-      }
-    }
+  "err_busy": {
+    "message": "A switch is already running in this window. Try again in a moment."
   },
-  "errNotFound": {
+  "err_not_found": {
     "message": "It no longer exists."
   },
-  "errInvalid": {
-    "message": "Not allowed: $DETAIL$",
+  "err_invalid": {
+    "message": "That is not allowed."
+  },
+  "err_limit": {
+    "message": "A limit was reached."
+  },
+  "err_internal": {
+    "message": "Something went wrong."
+  },
+  "sectionError": {
+    "message": "“$SECTION$” could not be shown: $ERROR$",
     "placeholders": {
-      "detail": {
+      "section": {
         "content": "$1"
+      },
+      "error": {
+        "content": "$2"
       }
     }
   },
-  "errInternal": {
-    "message": "Something went wrong: $DETAIL$",
-    "placeholders": {
-      "detail": {
-        "content": "$1"
-      }
-    }
+  "retry": {
+    "message": "Retry"
   },
   "tabsInWindow": {
     "message": "Tabs in this window"
@@ -260,6 +259,14 @@
   },
   "parked": {
     "message": "Parked “$TITLE$”",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "rowActions": {
+    "message": "Actions for $TITLE$",
     "placeholders": {
       "title": {
         "content": "$1"
@@ -372,13 +379,16 @@
   "recentlyClosed": {
     "message": "Recently closed"
   },
-  "andMore": {
-    "message": "and $COUNT$ more",
+  "showAll": {
+    "message": "Show all ($COUNT$)",
     "placeholders": {
       "count": {
         "content": "$1"
       }
     }
+  },
+  "showLess": {
+    "message": "Show less"
   },
   "recoveryAvailable": {
     "message": "Recovery available"
@@ -431,6 +441,36 @@
       }
     }
   },
+  "stage_snapshot": {
+    "message": "saving the current tabs"
+  },
+  "stage_opening": {
+    "message": "opening the workspace's tabs"
+  },
+  "stage_activating": {
+    "message": "activating the workspace"
+  },
+  "stage_closing": {
+    "message": "closing the previous tabs"
+  },
+  "stage_done": {
+    "message": "finishing"
+  },
+  "reason_session_changed": {
+    "message": "the browser or extension restarted"
+  },
+  "reason_window_closed": {
+    "message": "the window was closed"
+  },
+  "reason_window_closed_during_the_switch": {
+    "message": "the window was closed during the switch"
+  },
+  "reason_too_many_attempts": {
+    "message": "it failed too many times"
+  },
+  "reason_tabs_changed_during_the_switch": {
+    "message": "tabs changed during the switch"
+  },
   "openIncoming": {
     "message": "Open incoming in new window"
   },
@@ -481,8 +521,8 @@
   "snapshotTaken": {
     "message": "Snapshot saved."
   },
-  "exportJson": {
-    "message": "Export JSON"
+  "exportBackup": {
+    "message": "Export backup"
   },
   "noSessions": {
     "message": "No snapshots yet."
@@ -677,6 +717,17 @@
   },
   "unsortedOther": {
     "message": "Unsorted (another window)"
+  },
+  "unsortedPreview": {
+    "message": "$TITLES$ +$COUNT$",
+    "placeholders": {
+      "titles": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
   },
   "startEmptyHint": {
     "message": "Create an empty workspace and keep this window's tabs where they are"

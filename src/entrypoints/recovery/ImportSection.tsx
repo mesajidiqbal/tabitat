@@ -4,14 +4,17 @@ import { t } from "@/i18n";
 import { sendEnvelope } from "@/messaging/client";
 import type { ImportReport } from "@/messaging/commands";
 import c from "@/ui/components/controls.module.css";
+import { describeError } from "@/ui/errors";
 import { absTime } from "@/ui/format";
-import { store } from "@/ui/store";
+import { IMPORT_FAILED_KEY, store } from "@/ui/store";
 import s from "./recovery.module.css";
 import { ConfirmButton } from "./shared";
 
 type Mode = "merge" | "replace";
 
-function FailedImport() {
+type Result = { ok: boolean; text: string; extra?: string } | null;
+
+function FailedImport({ onResult }: { onResult: (r: Result) => void }) {
   const f = store.importFailed.value;
   if (!f) return null;
   const applied = Array.isArray(f.applied) ? f.applied : [];
@@ -27,7 +30,13 @@ function FailedImport() {
       <button
         type="button"
         class={c.btn}
-        onClick={() => void sendEnvelope("system.purgeCorrupt", { keys: ["import:failed"] })}
+        onClick={() =>
+          void sendEnvelope("system.purgeCorrupt", { keys: [IMPORT_FAILED_KEY] }).then((env) => {
+            if (env.ok) return onResult(null);
+            const err = describeError(env.code, env.message);
+            onResult({ ok: false, text: err.text, extra: err.detail });
+          })
+        }
       >
         {t("dismiss")}
       </button>
@@ -38,7 +47,7 @@ function FailedImport() {
 export function ImportSection() {
   const [mode, setMode] = useState<Mode>("merge");
   const [file, setFile] = useState<{ name: string; data: unknown } | null>(null);
-  const [result, setResult] = useState<{ ok: boolean; text: string; extra?: string } | null>(null);
+  const [result, setResult] = useState<Result>(null);
   const [busy, setBusy] = useState(false);
 
   const choose = async (e: Event) => {
@@ -68,10 +77,13 @@ export function ImportSection() {
         extra: r.warnings.join("\n"),
       });
     } else {
+      const err = describeError(env.code, env.message);
       setResult({
         ok: false,
-        text: env.message,
-        extra: env.details ? JSON.stringify(env.details, null, 2) : "",
+        text: err.text,
+        extra: [err.detail, env.details ? JSON.stringify(env.details, null, 2) : ""]
+          .filter(Boolean)
+          .join("\n"),
       });
     }
   };
@@ -81,7 +93,7 @@ export function ImportSection() {
       <div class={s.cardHead}>
         <h2 id="imp-h">{t("importTitle")}</h2>
       </div>
-      <FailedImport />
+      <FailedImport onResult={setResult} />
       <fieldset class={s.fieldset}>
         <legend>{t("importMode")}</legend>
         {(["merge", "replace"] as const).map((m) => (

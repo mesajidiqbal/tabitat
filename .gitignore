@@ -13,3 +13,4 @@ playwright-report/
 .output-newtab/
 docs/reviews/*-bundle.txt
 docs/reviews/*.diff
+docs/reviews/*-prompt.txt

@@ -3,21 +3,35 @@ import { useState } from "preact/hooks";
 import type { TrashItem } from "@/core/model/types";
 import { t } from "@/i18n";
 import { send } from "@/messaging/client";
-import { errorText } from "@/ui/actions";
 import c from "@/ui/components/controls.module.css";
 import { absTime } from "@/ui/format";
 import { store } from "@/ui/store";
 import s from "./recovery.module.css";
-import { ConfirmButton, type Status, StatusLine, TabList } from "./shared";
+import { ConfirmButton, errStatus, type Status, StatusLine, TabList } from "./shared";
+
+/** A field of a possibly malformed nested record (trash items are not re-validated here). */
+const str = (o: unknown, k: string): string => {
+  const v = typeof o === "object" && o !== null ? (o as Record<string, unknown>)[k] : undefined;
+  return typeof v === "string" ? v : "";
+};
+
+/** Saved tabs of a trashed workspace; missing or non-array tabs read as none. */
+const trashedTabs = (it: Extract<TrashItem, { kind: "workspace" }>) => {
+  const tabs = typeof it.tabs === "object" && it.tabs !== null ? it.tabs.tabs : undefined;
+  return Array.isArray(tabs) ? tabs : [];
+};
 
 function describeItem(item: TrashItem): { kind: string; name: string } {
   const scope = (sc: string) =>
     sc === "global" ? t("scopeGlobal") : (store.metas.value[sc]?.name ?? sc);
   switch (item.kind) {
     case "workspace":
-      return { kind: t("kindWorkspace"), name: item.meta.name };
+      return { kind: t("kindWorkspace"), name: str(item.meta, "name") || item.id };
     case "link":
-      return { kind: t("kindLink"), name: item.link.title || item.link.url };
+      return {
+        kind: t("kindLink"),
+        name: str(item.link, "title") || str(item.link, "url") || item.id,
+      };
     case "note":
       return { kind: t("kindNote"), name: scope(item.scope) };
     default:
@@ -31,7 +45,7 @@ export function TrashSection() {
   const run = (p: Promise<unknown>, ok: string) =>
     p.then(
       () => setStatus({ kind: "ok", text: ok }),
-      (e: unknown) => setStatus({ kind: "err", text: errorText(e) }),
+      (e: unknown) => setStatus(errStatus(e)),
     );
   return (
     <section class={s.card} aria-labelledby="trash-h">
@@ -78,7 +92,7 @@ export function TrashSection() {
                     }
                   />
                 </div>
-                {it.kind === "workspace" && <TabList tabs={it.tabs.tabs} />}
+                {it.kind === "workspace" && <TabList tabs={trashedTabs(it)} />}
               </li>
             );
           })}

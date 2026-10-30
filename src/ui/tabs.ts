@@ -91,3 +91,25 @@ export function tabRuns(tabs: readonly UiTab[], groups: Record<number, UiGroup>)
   }
   return runs;
 }
+
+/** One stop of the Tabs list's keyboard order: a tab-group header or a tab. */
+export type TabNode = { kind: "header"; groupId: number } | { kind: "tab"; tab: UiTab };
+
+/**
+ * Flat, ordered list of the navigable nodes of the Tabs list (one roving tab stop): each group
+ * contributes its header, then its tabs unless the group is collapsed (local to the list).
+ */
+export function buildTabNodes(
+  runs: readonly TabRun[],
+  collapsed: Readonly<Record<number, boolean>>,
+): TabNode[] {
+  const nodes: TabNode[] = [];
+  for (const run of runs) {
+    if (run.group) {
+      nodes.push({ kind: "header", groupId: run.groupId });
+      if (collapsed[run.groupId]) continue;
+    }
+    for (const tab of run.tabs) nodes.push({ kind: "tab", tab });
+  }
+  return nodes;
+}

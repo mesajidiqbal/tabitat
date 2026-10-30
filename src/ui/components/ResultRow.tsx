@@ -1,4 +1,5 @@
 /** One search hit (option of the results listbox; focus stays in the search box). */
+import { useEffect, useRef } from "preact/hooks";
 import { t } from "@/i18n";
 import { hostLabel } from "../format";
 import type { UiHit } from "../search";
@@ -24,11 +25,17 @@ export function ResultRow(p: {
   onHover: () => void;
 }) {
   const { hit } = p;
+  const el = useRef<HTMLDivElement>(null);
+  // Keep the highlighted hit visible while arrowing (focus stays in the search box).
+  useEffect(() => {
+    if (p.selected) el.current?.scrollIntoView?.({ block: "nearest" });
+  }, [p.selected]);
   const ws = hit.workspaceId ? store.metas.value[hit.workspaceId] : undefined;
   const sub = hit.kind === "workspace" ? "" : hostLabel(hit.url);
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard is handled by the combobox input
     <div
+      ref={el}
       id={p.id}
       role="option"
       tabIndex={-1}

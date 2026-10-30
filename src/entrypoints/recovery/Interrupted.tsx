@@ -2,19 +2,46 @@
 import { useState } from "preact/hooks";
 import type { RecoveryEntry } from "@/background/keys";
 import { buildPlaceholderUrl, classifyUrl } from "@/core/ops/url";
-import { t } from "@/i18n";
+import { type MsgKey, t } from "@/i18n";
 import { send } from "@/messaging/client";
-import { errorText } from "@/ui/actions";
 import c from "@/ui/components/controls.module.css";
 import { absTime } from "@/ui/format";
 import { store } from "@/ui/store";
 import s from "./recovery.module.css";
-import { type Status, StatusLine, TabList } from "./shared";
+import { errStatus, type Status, StatusLine, TabList } from "./shared";
+
+/** Entries can be malformed (not re-validated here): missing / non-array tab lists read as empty. */
+const incomingOf = (e: RecoveryEntry) => (Array.isArray(e.incoming) ? e.incoming : []);
+const outgoingOf = (e: RecoveryEntry) => {
+  const tabs = typeof e.fromSnapshot === "object" && e.fromSnapshot ? e.fromSnapshot.tabs : null;
+  return Array.isArray(tabs) ? tabs : null;
+};
+
+const STAGES: Record<string, MsgKey> = {
+  snapshot: "stage_snapshot",
+  opening: "stage_opening",
+  activating: "stage_activating",
+  closing: "stage_closing",
+  done: "stage_done",
+};
+/** Reasons the worker writes (workspace-engine resumeOrAbandon, services window removal). */
+const REASONS: Record<string, MsgKey> = {
+  "session changed": "reason_session_changed",
+  "window closed": "reason_window_closed",
+  "window closed during the switch": "reason_window_closed_during_the_switch",
+  "too many attempts": "reason_too_many_attempts",
+  "tabs changed during the switch": "reason_tabs_changed_during_the_switch",
+};
+/** Localized stage / reason; unknown values are shown as stored. */
+const label = (map: Record<string, MsgKey>, v: unknown): string => {
+  const s = String(v ?? "");
+  return Object.hasOwn(map, s) ? t(map[s] as MsgKey) : s;
+};
 
 /** Lazy placeholders for web pages; chrome:/about: pages directly; anything else is skipped. */
 function incomingUrls(e: RecoveryEntry): string[] {
   const base = chrome.runtime.getURL("/suspended.html");
-  return e.incoming.flatMap((tab) => {
+  return incomingOf(e).flatMap((tab) => {
     const mode = classifyUrl(tab.url);
     if (mode === "skip") return [];
     return mode === "placeholder"
@@ -37,13 +64,13 @@ export function Interrupted() {
       await chrome.windows.create({ url: urls, focused: true });
       setStatus({ kind: "ok", text: t("openedTabs", urls.length) });
     } catch (err) {
-      setStatus({ kind: "err", text: errorText(err) });
+      setStatus(errStatus(err));
     }
   };
   const dismiss = (e: RecoveryEntry) =>
     send("recovery.dismiss", { opIds: [e.opId] }).then(
       () => setStatus(null),
-      (err: unknown) => setStatus({ kind: "err", text: errorText(err) }),
+      (err: unknown) => setStatus(errStatus(err)),
     );
 
   return (
@@ -58,7 +85,8 @@ export function Interrupted() {
             <div class={s.grow}>
               <strong>{t("fromTo", [name(e.from), name(e.to)])}</strong>
               <div class={s.muted}>
-                {absTime(e.abandonedAt)} · {t("stageReason", [e.stage, e.reason])}
+                {absTime(e.abandonedAt)} ·{" "}
+                {t("stageReason", [label(STAGES, e.stage), label(REASONS, e.reason)])}
               </div>
             </div>
             <div class={s.actions}>
@@ -69,11 +97,11 @@ export function Interrupted() {
                 {t("dismiss")}
               </button>
             </div>
-            <TabList tabs={e.incoming} label={t("incomingTabs", e.incoming.length)} />
-            {e.fromSnapshot && (
+            <TabList tabs={incomingOf(e)} label={t("incomingTabs", incomingOf(e).length)} />
+            {outgoingOf(e) && (
               <TabList
-                tabs={e.fromSnapshot.tabs}
-                label={t("outgoingTabs", e.fromSnapshot.tabs.length)}
+                tabs={outgoingOf(e) ?? []}
+                label={t("outgoingTabs", outgoingOf(e)?.length ?? 0)}
               />
             )}
           </li>

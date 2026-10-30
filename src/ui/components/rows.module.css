@@ -95,6 +95,24 @@
   gap: 0;
   visibility: hidden;
 }
+/* Keyboard-only action menu of a row (ContextMenu / Shift+F10): an invisible trigger anchored
+   at the row's right edge (out of the flex flow, so no gap) so the menu opens there. */
+.menuAnchor {
+  position: absolute;
+  right: var(--sp-2);
+  bottom: 2px;
+  width: 0;
+  height: 0;
+}
+.menuTrigger {
+  display: block;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+}
 .row:hover .actions,
 .row:focus-within .actions,
 .row.hl .actions {

@@ -5,13 +5,12 @@ import { attempt } from "../actions";
 import c from "../components/controls.module.css";
 import { showToast } from "../components/Toast";
 import { IconDupes, IconSleep } from "../icons";
-import { busy, store } from "../store";
-import { duplicateCount } from "../tabs";
+import { busy, store, windowDuplicates } from "../store";
 import s from "./sections.module.css";
 
 export function WindowActions() {
   const w = store.windowId.value;
-  const dupes = duplicateCount(store.liveTabs.value, chrome.runtime.getURL("/suspended.html"));
+  const dupes = windowDuplicates.value;
   const disabled = w === null || busy.value;
   const suspend = async () => {
     if (w === null) return;

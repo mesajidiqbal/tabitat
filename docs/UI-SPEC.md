@@ -11,7 +11,9 @@ Every surface reads with `useStorageKey` (storage.local + onChanged) and
 writes only via `send()` RPC. Signals: `workspaces` (index + metas),
 `currentWindowId` (`chrome.windows.getCurrent`), `windowState`,
 `liveTabs` (via `chrome.tabs.query({currentWindow:true})` + tabs events;
-reading tabs is allowed in UI, writing is not), `op` (`op.status`),
+the UI may activate, focus, or close a single tab directly: plain browser events
+the tracker already auto-saves; anything that changes saved workspace state goes
+through the `send()` RPC), `op` (`op.status`),
 `recoveryPending`, `settings`.
 
 ## Popup (360 × 540)

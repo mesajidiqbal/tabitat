@@ -2,6 +2,8 @@
 import { t } from "@/i18n";
 import { openExtPage } from "@/ui/actions";
 import c from "@/ui/components/controls.module.css";
+import { ErrorBanner } from "@/ui/components/ErrorBanner";
+import { ProgressRow } from "@/ui/components/ProgressRow";
 import { SearchBox } from "@/ui/components/SearchBox";
 import { Toast } from "@/ui/components/Toast";
 import { useSurface } from "@/ui/hooks/useSurface";
@@ -31,6 +33,8 @@ export function App() {
           listId={RESULTS_ID}
           activeId={ui.hits.length > 0 ? resultId(ui.selected) : undefined}
         />
+        <ErrorBanner />
+        <ProgressRow />
       </div>
       <main class={s.main}>
         {searching ? (

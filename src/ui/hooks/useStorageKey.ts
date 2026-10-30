@@ -10,6 +10,9 @@ export interface StorageKeyState<T> {
   error: string | null;
 }
 
+/** The initial storage read is applied only if no onChanged event for the key arrived first. */
+export const shouldApplyInitial = (seenChange: boolean): boolean => !seenChange;
+
 export function useStorageKey<T>(
   key: string | null,
   parse?: (raw: unknown) => T,
@@ -42,9 +45,24 @@ export function useStorageKey<T>(
         });
       }
     };
-    void chrome.storage.local.get(key).then((res) => apply(res[key]));
+    // A change that arrives before the initial read resolves is newer: the read is dropped.
+    let seenChange = false;
+    chrome.storage.local.get(key).then(
+      (res) => {
+        if (shouldApplyInitial(seenChange)) apply(res[key]);
+      },
+      (e: unknown) => {
+        if (!alive || !shouldApplyInitial(seenChange)) return;
+        setState({
+          value: undefined,
+          loaded: true,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      },
+    );
     const listener = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
       if (area !== "local" || !(key in changes)) return;
+      seenChange = true;
       apply(changes[key]?.newValue);
     };
     chrome.storage.onChanged.addListener(listener);

@@ -4,7 +4,7 @@
  * (link) and recently closed (closed), plus workspace names. The core SearchIndex is built on
  * first use and kept up to date incrementally by effects (never rebuilt per keystroke).
  */
-import { effect, signal, untracked } from "@preact/signals";
+import { batch, effect, signal, untracked } from "@preact/signals";
 import fuzzysort from "fuzzysort";
 import { escapeHtml, type SearchDoc, type SearchDocKind, SearchIndex } from "@/core/search";
 import { activateByUrl, activateTab, openUrl, switchTo } from "./actions";
@@ -26,6 +26,15 @@ const index = new SearchIndex({ threshold: 0.3 });
 /** Bumped on every index mutation so result computations re-run. */
 export const searchVersion = signal(0);
 let started = false;
+/** While true (first start) index changes are counted but `searchVersion` is bumped once after. */
+let starting = false;
+let startingChanged = false;
+
+/** Bumps `searchVersion` without subscribing the calling effect to it. */
+function bump(): void {
+  if (starting) startingChanged = true;
+  else searchVersion.value = searchVersion.peek() + 1;
+}
 
 const same = (a: SearchDoc, b: SearchDoc) =>
   a.title === b.title &&
@@ -46,12 +55,26 @@ function syncSource(prev: Map<string, SearchDoc>, docs: SearchDoc[]): Map<string
       changed = true;
     }
   }
-  if (changed) searchVersion.value++;
+  if (changed) bump();
   return next;
 }
 
+/** Creates the sync effects inside one batch: `searchVersion` increments once for all of them. */
 function start(): void {
   started = true;
+  starting = true;
+  try {
+    batch(startEffects);
+  } finally {
+    starting = false;
+  }
+  if (startingChanged) {
+    startingChanged = false;
+    bump();
+  }
+}
+
+function startEffects(): void {
   let tabs = new Map<string, SearchDoc>();
   let saved = new Map<string, SearchDoc>();
   let links = new Map<string, SearchDoc>();

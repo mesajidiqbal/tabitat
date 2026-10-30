@@ -6,10 +6,11 @@
  * empty search box (the popup focuses it on open).
  */
 import { useEffect, useRef, useState } from "preact/hooks";
-import { closePopup, newWorkspaceOpen, openSidePanel, switchTo } from "../actions";
+import { t } from "@/i18n";
+import { closePopup, newWorkspaceOpen, openSidePanel, switchTo, uiError } from "../actions";
 import { openHit, search } from "../search";
 import { WS_LIST_ID } from "../sections/WorkspacesSection";
-import { workspaces } from "../store";
+import { busy, workspaces } from "../store";
 import { focusList } from "./useRoving";
 
 const editable = (el: EventTarget | null) =>
@@ -24,11 +25,17 @@ export function switchNth(i: number): void {
   if (m) void switchTo(m.id);
 }
 
+/** The highlighted result: `selected` clamped to the current hits (0 when there are none). */
+export const effectiveSelection = (selected: number, hitCount: number): number =>
+  Math.max(0, Math.min(selected, hitCount - 1));
+
 export function useSurface(variant: "popup" | "panel") {
   const [query, setQueryRaw] = useState("");
-  const [selected, setSelected] = useState(0);
+  const [selectedRaw, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const hits = search(query);
+  // Hits can shrink under a stale selection (e.g. a tab closed): always use the clamped index.
+  const selected = effectiveSelection(selectedRaw, hits.length);
   const setQuery = (q: string) => {
     setQueryRaw(q);
     setSelected(0);
@@ -58,11 +65,14 @@ export function useSurface(variant: "popup" | "panel") {
     const empty = query.trim() === "";
     if (k === "ArrowDown") {
       if (empty) focusList(WS_LIST_ID);
-      else setSelected(Math.min(selected + 1, hits.length - 1));
-    } else if (k === "ArrowUp" && !empty) setSelected(Math.max(selected - 1, 0));
-    else if (k === "Enter" && !empty) {
+      else if (hits.length > 0) setSelected(effectiveSelection(selected + 1, hits.length));
+    } else if (k === "ArrowUp" && !empty) {
+      if (hits.length > 0) setSelected(effectiveSelection(selected - 1, hits.length));
+    } else if (k === "Enter" && !empty) {
       const hit = hits[selected];
-      if (hit) void openHit(hit);
+      // A switch is running: say so instead of silently ignoring the key (switchTo would no-op).
+      if (hit?.kind === "workspace" && busy.peek()) uiError.value = { text: t("err_busy") };
+      else if (hit) void openHit(hit);
     } else if (k === "Escape") {
       if (!empty) setQuery("");
       else if (popup) closePopup();

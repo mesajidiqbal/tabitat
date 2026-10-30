@@ -7,9 +7,10 @@ import type { WorkspaceMeta } from "@/core/model/types";
 import { plural, t } from "@/i18n";
 import { send } from "@/messaging/client";
 import { attempt, deleteWorkspace, switchTo } from "../actions";
-import { relTime } from "../format";
+import { relTime, unsortedDetail } from "../format";
 import type { RovingItem } from "../hooks/useRoving";
 import { IconMore } from "../icons";
+import { store } from "../store";
 import { colorVar } from "../theme";
 import { ColorSwatches } from "./ColorSwatches";
 import c from "./controls.module.css";
@@ -38,15 +39,20 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
   const name = !unsorted ? meta.name : p.active ? t("unsorted") : t("unsortedOther");
   const update = (patch: { name?: string; color?: WorkspaceMeta["color"] }) =>
     attempt(() => send("workspace.update", { id: meta.id, patch, expectedRev: meta.rev }));
+  // The Unsorted workspace of a live window is that window's own tabs: not deletable while open.
+  const deletable = !(unsorted && (p.active || p.elsewhere));
   const open = () => !p.disabled && !renaming && void switchTo(meta.id);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target === e.currentTarget && !renaming) {
       const k = e.key;
       if (k === "Enter" || k === " ") open();
-      else if (k === "F2") setRenaming(true);
-      else if (k === "Delete") void deleteWorkspace(meta.id, name);
-      else if (k === "ContextMenu" || (k === "F10" && e.shiftKey)) menuBtn.current?.click();
+      // While a switch runs (disabled) rename / delete keys are swallowed, not acted on.
+      else if (k === "F2") {
+        if (!p.disabled) setRenaming(true);
+      } else if (k === "Delete") {
+        if (deletable && !p.disabled) void deleteWorkspace(meta.id, name);
+      } else if (k === "ContextMenu" || (k === "F10" && e.shiftKey)) menuBtn.current?.click();
       else return p.item.onKeyDown(e);
       e.preventDefault();
       return;
@@ -54,8 +60,10 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
     p.item.onKeyDown(e);
   };
 
-  const details = [plural(p.tabCount, "tabsOne", "tabsMany")];
-  if (p.savedAt && !p.card) details.push(relTime(p.savedAt));
+  const count = plural(p.tabCount, "tabsOne", "tabsMany");
+  const preview = p.card && unsorted && !p.active;
+  const details = [preview ? unsortedDetail(store.wsTabs.value[meta.id]?.tabs, count) : count];
+  if (p.savedAt) details.push(relTime(p.savedAt));
   if (p.elsewhere && p.card) details.push(t("openElsewhere"));
   return (
     <div
@@ -110,24 +118,31 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
         items={[
           {
             label: t("openInNewWindow"),
+            disabled: p.disabled,
             onSelect: () => void attempt(() => send("workspace.open", { workspaceId: meta.id })),
           },
           {
             label: unsorted ? t("nameWorkspace") : t("rename"),
             hint: <Kbd>F2</Kbd>,
+            disabled: p.disabled,
             onSelect: () => setRenaming(true),
           },
-          {
-            label: t("delete"),
-            danger: true,
-            hint: <Kbd>Del</Kbd>,
-            disabled: p.disabled,
-            onSelect: () => void deleteWorkspace(meta.id, name),
-          },
+          ...(deletable
+            ? [
+                {
+                  label: t("delete"),
+                  danger: true,
+                  hint: <Kbd>Del</Kbd>,
+                  disabled: p.disabled,
+                  onSelect: () => void deleteWorkspace(meta.id, name),
+                },
+              ]
+            : []),
         ]}
         extra={(close) => (
           <ColorSwatches
             inMenu
+            disabled={p.disabled}
             value={meta.color}
             onChange={(color) => {
               close();

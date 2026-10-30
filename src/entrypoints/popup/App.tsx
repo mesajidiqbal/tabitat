@@ -1,5 +1,7 @@
 /** Popup (UI-SPEC §Popup, 360 × 540): header, search, sections or results, banner, footer. */
 import { t } from "@/i18n";
+import { ErrorBanner } from "@/ui/components/ErrorBanner";
+import { ProgressRow } from "@/ui/components/ProgressRow";
 import { SearchBox } from "@/ui/components/SearchBox";
 import { Toast } from "@/ui/components/Toast";
 import { useSurface } from "@/ui/hooks/useSurface";
@@ -31,6 +33,8 @@ export function App() {
         activeId={ui.hits.length > 0 ? resultId(ui.selected) : undefined}
         autoFocus
       />
+      <ErrorBanner />
+      <ProgressRow />
       <main class={s.main}>
         {searching ? (
           <SearchResults hits={ui.hits} selected={ui.selected} onSelect={ui.setSelected} />

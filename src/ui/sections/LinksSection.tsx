@@ -99,7 +99,7 @@ export function LinksSection(p: { variant: "popup" | "panel" }) {
           {t("add")}
         </button>
       </SectionHeader>
-      {adding && <LinkForm workspaceId={meta.id} onClose={() => setAdding(false)} />}
+      {adding && <LinkForm key={meta.id} workspaceId={meta.id} onClose={() => setAdding(false)} />}
       {links.length === 0 && !adding && <p class={s.more}>{t("noLinksHint")}</p>}
       {links.length > 0 && (
         <div role="listbox" aria-labelledby="links-h" class={r.list}>

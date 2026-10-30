@@ -8,16 +8,18 @@ export interface ColorSwatchesProps {
   value: Color;
   onChange: (c: Color) => void;
   inMenu?: boolean;
+  /** Shown but not selectable (e.g. while a switch runs). */
+  disabled?: boolean;
 }
 
-export function ColorSwatches({ value, onChange, inMenu }: ColorSwatchesProps) {
+export function ColorSwatches({ value, onChange, inMenu, disabled }: ColorSwatchesProps) {
   const move = (e: KeyboardEvent, i: number) => {
     const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     if (d === 0) return;
     e.preventDefault();
     e.stopPropagation();
     const n = (i + d + COLORS.length) % COLORS.length;
-    if (!inMenu) onChange(COLORS[n] as Color);
+    if (!inMenu && !disabled) onChange(COLORS[n] as Color);
     const parent = (e.currentTarget as HTMLElement).parentElement;
     (parent?.children[n] as HTMLElement | undefined)?.focus();
   };
@@ -28,7 +30,8 @@ export function ColorSwatches({ value, onChange, inMenu }: ColorSwatchesProps) {
     title: t(`color_${c}`),
     class: s.swatch,
     style: { "--sw": colorVar(c) },
-    onClick: () => onChange(c),
+    "aria-disabled": disabled ? ("true" as const) : undefined,
+    onClick: () => !disabled && onChange(c),
     onKeyDown: (e: KeyboardEvent) => move(e, i),
   });
   if (inMenu) {

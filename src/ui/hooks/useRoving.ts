@@ -1,8 +1,9 @@
 /**
- * Roving tabindex for listbox options (UI-SPEC Accessibility): one option is tabbable, arrows
- * move focus, Home/End jump. Keys pressed on inner controls are ignored.
+ * Roving tabindex for listbox options and group headers (UI-SPEC Accessibility): one node is
+ * tabbable, arrows move focus, Home/End jump. Keys pressed on inner controls are ignored. When
+ * the focused node disappears (e.g. its tab closed), focus moves to the node now at its place.
  */
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 export interface RovingItem {
   tabIndex: number;
@@ -16,9 +17,40 @@ export interface RovingOptions {
   onExitTop?: () => void;
 }
 
+export type RovingAction = { kind: "focus"; index: number } | { kind: "exitTop" } | null;
+
+/** What a key on node `index` of `count` nodes does (null: not a navigation key). Pure. */
+export function rovingAction(
+  key: string,
+  index: number,
+  count: number,
+  hasExitTop: boolean,
+): RovingAction {
+  if (count <= 0) return null;
+  const at = (i: number): RovingAction => ({
+    kind: "focus",
+    index: Math.max(0, Math.min(count - 1, i)),
+  });
+  switch (key) {
+    case "ArrowDown":
+      return at(index + 1);
+    case "ArrowUp":
+      return index === 0 && hasExitTop ? { kind: "exitTop" } : at(index - 1);
+    case "Home":
+      return at(0);
+    case "End":
+      return at(count - 1);
+    default:
+      return null;
+  }
+}
+
 export function useRoving(count: number, opts: RovingOptions = {}) {
   const [active, setActive] = useState(0);
   const els = useRef<Array<HTMLElement | null>>([]);
+  /** The node that last received focus (to notice it being removed). */
+  const focused = useRef<HTMLElement | null>(null);
+  const prevCount = useRef(count);
   const cur = count === 0 ? -1 : Math.min(active, count - 1);
 
   const focusAt = (i: number) => {
@@ -28,21 +60,34 @@ export function useRoving(count: number, opts: RovingOptions = {}) {
     els.current[n]?.focus();
   };
 
+  // The list shrank under the focused node: focus the clamped index once the DOM has settled.
+  useEffect(() => {
+    const shrank = count < prevCount.current;
+    prevCount.current = count;
+    if (!shrank || count === 0) return;
+    const gone = focused.current !== null && !focused.current.isConnected;
+    const ae = document.activeElement;
+    const lost = ae === null || ae === document.body || !ae.isConnected;
+    if (!gone || !lost) return;
+    const id = setTimeout(() => focusAt(cur));
+    return () => clearTimeout(id);
+  }, [count]);
+
   const item = (i: number): RovingItem => ({
     tabIndex: i === cur ? 0 : -1,
     ref: (el) => {
       els.current[i] = el;
     },
-    onFocus: () => setActive(i),
+    onFocus: () => {
+      setActive(i);
+      focused.current = els.current[i] ?? null;
+    },
     onKeyDown: (e) => {
       if (e.target !== e.currentTarget || e.altKey || e.ctrlKey || e.metaKey) return;
-      if (e.key === "ArrowDown") focusAt(i + 1);
-      else if (e.key === "ArrowUp") {
-        if (i === 0 && opts.onExitTop) opts.onExitTop();
-        else focusAt(i - 1);
-      } else if (e.key === "Home") focusAt(0);
-      else if (e.key === "End") focusAt(count - 1);
-      else return;
+      const action = rovingAction(e.key, i, count, opts.onExitTop !== undefined);
+      if (action === null) return;
+      if (action.kind === "exitTop") opts.onExitTop?.();
+      else focusAt(action.index);
       e.preventDefault();
     },
   });
@@ -50,11 +95,11 @@ export function useRoving(count: number, opts: RovingOptions = {}) {
   return { item, focusAt, active: cur };
 }
 
-/** Focuses the tabbable option of a listbox by element id (e.g. from the search box). */
+/** Focuses the tabbable node of a list by element id (e.g. from the search box). */
 export function focusList(id: string): boolean {
   const el = document
     .getElementById(id)
-    ?.querySelector<HTMLElement>('[role="option"][tabindex="0"]');
+    ?.querySelector<HTMLElement>('[role="option"][tabindex="0"], button[tabindex="0"]');
   el?.focus();
   return !!el;
 }

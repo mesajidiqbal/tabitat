@@ -25,6 +25,10 @@ export interface MenuProps {
   triggerRef?: Ref<HTMLButtonElement>;
   tabIndex?: number;
   disabled?: boolean;
+  /** Class of the wrapper around trigger + popover (default: inline-flex). */
+  wrapClass?: string;
+  /** Where focus goes when the menu closes (default: the trigger). */
+  returnFocus?: () => void;
 }
 
 const ITEMS = '[role^="menuitem"]:not([aria-disabled="true"])';
@@ -35,7 +39,7 @@ export function Menu(p: MenuProps) {
   const pop = useRef<HTMLDivElement>(null);
   const close = (refocus = true) => {
     setPos(null);
-    if (refocus) btn.current?.focus();
+    if (refocus) (p.returnFocus ?? (() => btn.current?.focus()))();
   };
   const toggle = () => {
     if (pos) return close();
@@ -79,9 +83,9 @@ export function Menu(p: MenuProps) {
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: stops row activation; keys handled by the menu
     <span
-      class={s.wrap}
+      class={p.wrapClass ?? s.wrap}
       onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.key === "Enter" && e.stopPropagation()}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && e.stopPropagation()}
     >
       <button
         ref={setBtn}
