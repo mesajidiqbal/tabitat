@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
+    "spike": "playwright test --project=spike",
     "check": "npm run lint && npm run typecheck && npm test",
     "postinstall": "wxt prepare"
   },
@@ -27,6 +28,7 @@
     "@preact/preset-vite": "^2.10.6",
     "@types/chrome": "^0.3.7",
     "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "^5.0.5",
     "typescript": "~5.9",
     "vitest": "^5.0.5",
     "wxt": "^0.21.5"
