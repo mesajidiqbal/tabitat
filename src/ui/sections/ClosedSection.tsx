@@ -7,7 +7,7 @@ import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { TabRow } from "../components/TabRow";
 import { relTime } from "../format";
-import { useRoving } from "../hooks/useRoving";
+import { focusFirst, useRoving } from "../hooks/useRoving";
 import { store } from "../store";
 import s from "./sections.module.css";
 
@@ -17,7 +17,9 @@ export function ClosedSection(p: { variant: "popup" | "panel" }) {
   const [showAll, setShowAll] = useState(false);
   const max = p.variant === "popup" ? 5 : 25;
   const list = showAll ? all : all.slice(0, max);
-  const roving = useRoving(open ? list.length : 0);
+  const roving = useRoving(open ? list.length : 0, {
+    onEmpty: () => focusFirst("closed-h", "tabs-h"),
+  });
   if (all.length === 0) return null;
   return (
     <section class={s.section} aria-labelledby="closed-h">

@@ -1648,6 +1648,24 @@
   "dashPomodoroLongBreak": {
     "message": "Long break"
   },
+  "pomoNotifyTitle": {
+    "message": "$PHASE$ finished",
+    "description": "Pomodoro notification title when a phase ends. $PHASE$ is the finished phase name (Focus, Short break, Long break).",
+    "placeholders": {
+      "phase": {
+        "content": "$1"
+      }
+    }
+  },
+  "pomoNotifyBody": {
+    "message": "$PHASE$ started",
+    "description": "Pomodoro notification text when the next phase begins. $PHASE$ is the new phase name (Focus, Short break, Long break).",
+    "placeholders": {
+      "phase": {
+        "content": "$1"
+      }
+    }
+  },
   "dashPomodoroRound": {
     "message": "Round $P1$ / $P2$",
     "placeholders": {

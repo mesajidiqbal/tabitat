@@ -150,6 +150,32 @@ describe("check-i18n", () => {
     ]);
   });
 
+  it("counts a string, plain template or number argument as exactly one substitution", () => {
+    const root = fixture({
+      ...CLEAN,
+      [EN]: { ...CLEAN[EN], needsTwo: m("$1 of $2"), one: m("Just $1"), plain: m("Plain") },
+      "src/b.ts": [
+        'import { t } from "@/i18n";',
+        't("needsTwo", "x");',
+        't("needsTwo", `x`);',
+        't("needsTwo", 5);',
+        't("plain", "x");',
+        't("one", "x"); t("one", `x`); t("one", 5);',
+        // identifiers, calls and expressions stay "some" (not reported)
+        't("needsTwo", name); t("needsTwo", f(1)); t("needsTwo", a + b);',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: source text under test
+        't("needsTwo", `x${y}`);',
+      ].join("\n"),
+    });
+    const r = checkI18n(root, { families: FAMILIES });
+    expect(r.problems.placeholders).toEqual([
+      'src/b.ts:2 t("needsTwo") passes 1 substitution(s); the message uses up to $2',
+      'src/b.ts:3 t("needsTwo") passes 1 substitution(s); the message uses up to $2',
+      'src/b.ts:4 t("needsTwo") passes 1 substitution(s); the message uses up to $2',
+      'src/b.ts:5 t("plain") passes substitutions; the message uses none',
+    ]);
+  });
+
   it("requires dynamic keys to belong to a declared family that is still built", () => {
     const root = fixture({
       ...CLEAN,

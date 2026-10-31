@@ -63,13 +63,14 @@ composing a 1280×800 image, and are not accepted unmodified.
 
 > Tabitat organizes the browser's tabs into workspaces that can be saved, switched and searched,
 > with a side panel and dashboard for working with those workspaces. Todos, notes and the
-> pomodoro timer are workspace-scoped focus tools shown in those same surfaces.
+> pomodoro timer are focus tools shown in those same surfaces (todos and notes per workspace or
+> global; one pomodoro timer).
 
 ## Permission justifications
 
 | Permission | Justification |
 | --- | --- |
-| `tabs` | Reads tab URLs and titles to save workspaces, list and search tabs, and restore them on a switch. The only sensitive permission; the data never leaves the device. |
+| `tabs` | Reads tab URLs and titles to save workspaces, list and search tabs, and restore them on a switch. The data never leaves the device. |
 | `tabGroups` | Saves and restores tab groups (title, color, collapsed) as part of a workspace. |
 | `storage` | Keeps workspaces, todos, notes, quick links and settings in `chrome.storage.local`; optional settings sync uses `chrome.storage.sync` (settings only). |
 | `unlimitedStorage` | Large workspaces and the session history can exceed the default local storage quota; losing saved tabs to a quota error is not acceptable. |
@@ -88,12 +89,16 @@ allowed.
 
 - **Single purpose**: as above.
 - **Remote code**: No, the extension does not use remote code.
-- **Data usage, collected categories**: none. Tabitat handles tab URLs and titles (browsing
-  activity) and the user's own todos and notes, but only on the device: nothing is transmitted
-  to the developer or any third party, so no category is "collected" in the Web Store's sense.
-  Optional settings sync stores settings (theme, suspension rules, widget layout) in the user's
-  own browser sync storage, not on any developer server.
-- **Certifications**: I do not sell or transfer user data to third parties; I do not use or
+- **Data usage, data types handled**: disclose **Web history**. Tabitat handles the URLs and
+  titles of open and saved tabs; they are stored only on the device and never transmitted to the
+  developer or any third party. The Web Store form asks about data the extension handles, not only
+  data it transmits, and the final declaration is the customer's. Do not disclose "User activity"
+  or "Website content": there are no content scripts (no page content is read) and nothing tracks
+  clicks, keystrokes or scrolling. The todos and notes the user types are stored locally and fit
+  none of the listed categories as worded; the customer decides how to answer for them. Optional
+  settings sync stores settings (suspension rules, widget layout; not the theme or an image
+  wallpaper) in the user's own browser sync storage, not on any developer server.
+- **Certifications** (keep all three): I do not sell or transfer user data to third parties; I do not use or
   transfer user data for purposes unrelated to the single purpose; I do not use or transfer user
   data to determine creditworthiness or for lending.
 - **Privacy policy URL**: the published `PRIVACY.md` (repository link).

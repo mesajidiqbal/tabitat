@@ -7,11 +7,28 @@ import type { BgContext } from "./context";
 
 export const POMODORO_ALARM = "pomodoro";
 
-const LABEL: Record<PomodoroState["phase"], string> = {
-  work: "Focus",
-  break: "Short break",
-  longBreak: "Long break",
-};
+/** Non-empty translated message, else the English fallback (no i18n in some environments). */
+function localized(
+  runtime: BgContext["ports"]["runtime"],
+  key: string,
+  subs: string | string[] | undefined,
+  fallback: string,
+): string {
+  const msg = runtime.getMessage?.(key, subs);
+  return typeof msg === "string" && msg.trim() !== "" ? msg : fallback;
+}
+
+/** Phase name, translated. Literal keys keep scripts/check-i18n.mjs able to see them. */
+function phaseLabel(runtime: BgContext["ports"]["runtime"], phase: PomodoroState["phase"]): string {
+  switch (phase) {
+    case "work":
+      return localized(runtime, "dashPomodoroWork", undefined, "Focus");
+    case "break":
+      return localized(runtime, "dashPomodoroBreak", undefined, "Short break");
+    case "longBreak":
+      return localized(runtime, "dashPomodoroLongBreak", undefined, "Long break");
+  }
+}
 
 export class PomodoroService {
   constructor(private readonly ctx: BgContext) {}
@@ -57,8 +74,15 @@ export class PomodoroService {
     const next = pomodoro.complete(cur, settings.pomodoro, now);
     await this.ctx.repo.setMany({ [Keys.pomodoro]: next });
     await this.arm(next);
+    const rt = this.ctx.ports.runtime;
+    const done = phaseLabel(rt, cur.phase);
+    const started = phaseLabel(rt, next.phase);
     await this.ctx.ports.shell
-      .notify(`pomodoro-${now}`, `${LABEL[cur.phase]} finished`, `${LABEL[next.phase]} started`)
+      .notify(
+        `pomodoro-${now}`,
+        localized(rt, "pomoNotifyTitle", done, `${done} finished`),
+        localized(rt, "pomoNotifyBody", started, `${started} started`),
+      )
       .catch((e) => this.ctx.log.warn("[tabitat] notification failed", e));
     return next;
   }

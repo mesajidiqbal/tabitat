@@ -2,12 +2,12 @@
  * Phase 5 accessibility e2e (docs/PHASE5.md §2): axe-core on every extension page, seeded with
  * data, in light and dark. Zero `serious` / `critical` violations; `moderate` / `minor` are
  * printed. Exclusions (`disableRules` / `exclude`) must carry their reason here: there are none.
+ * Interaction states are audited too (a row menu open, an inline confirm open), and the keyboard
+ * paths of the popup grid and the dashboard workspace cards are exercised.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
-import { extensionPath, type LaunchedExtension, launchExtension } from "../support/extension";
+import { type LaunchedExtension, launchExtension } from "../support/extension";
 
 test.describe.configure({ mode: "serial" });
 
@@ -258,9 +258,37 @@ for (const scheme of SCHEMES) {
     await p.close();
   });
 
+  test(`popup with a row menu open (${scheme})`, async () => {
+    await visit(`popup.html?window=${w2}`, scheme, "popup", async (p) => {
+      await expect(p.locator("#ws-list").getByText("Alpha")).toBeVisible();
+    });
+    await page.locator("#ws-list").getByRole("button", { name: "Actions for Alpha" }).click();
+    const menu = page.getByRole("menu", { name: "Actions for Alpha" });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await audit(page, `popup row menu open (${scheme})`);
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+  });
+
+  test(`options Data with the confirm open (${scheme})`, async () => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.goto(extUrl("options.html"));
+    await page.getByRole("navigation").getByRole("link", { name: "Data", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 2, name: "Data" })).toBeVisible();
+    const empty = page.getByRole("button", { name: "Empty trash" });
+    await expect(empty).toBeEnabled();
+    await empty.click();
+    const group = page.getByRole("group", { name: /Permanently delete 1 items in the trash/ });
+    await expect(group).toBeVisible();
+    await expect(group.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await audit(page, `options Data confirm open (${scheme})`);
+    await page.keyboard.press("Escape");
+    await expect(group).toBeHidden();
+    await expect(empty).toBeFocused();
+  });
+
   test(`onboarding (${scheme})`, async () => {
-    // Added in parallel by the onboarding work; audited once it is part of the build.
-    test.skip(!existsSync(join(extensionPath, "onboarding.html")), "no onboarding.html in build");
     await visit("onboarding.html", scheme, "onboarding", async (p) => {
       await expect(p.getByRole("heading").first()).toBeVisible();
     });
@@ -299,4 +327,70 @@ test("grid keyboard in the popup: cells, actions, rows; focus ring on the row", 
   await expect(grid.getByRole("button", { name: /Research/ })).toBeFocused();
   await page.keyboard.press("End");
   await expect(grid.getByRole("row").last().getByRole("gridcell").first()).toBeFocused();
+});
+
+test("dashboard workspace cards: arrows move in two dimensions; Shift+F10 menu (C3.3)", async () => {
+  // Runs last: it adds workspaces the audits above do not expect.
+  const now = Date.now();
+  const extra = ["gamma", "delta", "epsilon", "zeta"];
+  await ext.worker.evaluate(
+    async ({ ids, now }) => {
+      const recs: Record<string, unknown> = {};
+      for (const id of ids) {
+        recs[`ws:meta:${id}`] = {
+          id,
+          name: id[0]?.toUpperCase() + id.slice(1),
+          color: "cyan",
+          kind: "named",
+          resources: [],
+          createdAt: now,
+          updatedAt: now,
+          rev: 1,
+        };
+        recs[`ws:tabs:${id}`] = { tabs: [], updatedAt: now, rev: 1 };
+      }
+      const idx =
+        ((await chrome.storage.local.get("ws:index"))["ws:index"] as string[] | undefined) ?? [];
+      await chrome.storage.local.set({ ...recs, "ws:index": [...idx, ...ids] });
+    },
+    { ids: extra, now },
+  );
+  // One widget column at this width: the workspaces card is wide enough for several card columns.
+  await page.setViewportSize({ width: 680, height: 1000 });
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto(extUrl("dashboard.html"));
+  const grid = page.locator("#dash-ws-list");
+  await expect(grid.getByText("Zeta")).toBeVisible();
+  const rows = grid.getByRole("row");
+  const layout = await grid.evaluate((el) => {
+    const tops = [...el.querySelectorAll<HTMLElement>(':scope > [role="row"]')].map(
+      (r) => r.offsetTop,
+    );
+    return { count: tops.length, cols: tops.filter((t) => t === tops[0]).length };
+  });
+  expect(layout.cols, "cards per row").toBeGreaterThanOrEqual(2);
+  expect(layout.count, "a second row of cards").toBeGreaterThan(layout.cols);
+  const cell = (i: number) => rows.nth(i).getByRole("gridcell").first();
+
+  await cell(0).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(cell(1)).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(cell(0)).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(cell(layout.cols)).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(cell(0)).toBeFocused();
+  // Right never enters the actions cell of a card; the menu opens from the keyboard instead.
+  await page.keyboard.press("ArrowRight");
+  await expect(cell(1)).toBeFocused();
+  await page.keyboard.press("Shift+F10");
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(cell(1)).toBeFocused();
+  // Nothing was switched or opened by the keys above.
+  await expect(page).toHaveURL(/dashboard\.html$/);
 });

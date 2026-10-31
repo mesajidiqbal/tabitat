@@ -32,13 +32,32 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      # Placeholders are allowed on branches (ci.yml) but must be gone from a release
+      # (docs/RELEASE.md section 7).
+      - name: Check release placeholders
+        run: |
+          set -u
+          FAILED=0
+          for p in '<repo-url>' '<maintainer email>' '<chrome-web-store-url>'; do
+            if grep -nF -- "$p" README.md PRIVACY.md SECURITY.md COMPATIBILITY.md CHANGELOG.md store/README.md; then
+              echo "::error::placeholder $p is still present (lines listed above)"
+              FAILED=1
+            fi
+          done
+          if grep -nE '^export const REPO_URL = "https://github\.com/";' src/ui/options/about.ts; then
+            echo "::error::REPO_URL in src/ui/options/about.ts is still the placeholder (https://github.com/)"
+            FAILED=1
+          fi
+          exit "$FAILED"
+
       - run: npm ci
       - run: npm run check
       - run: npm run build
       - run: npm run build:newtab
-      - run: npm run budgets
+      # Zip first: `wxt zip` rebuilds, so budgets must measure the build the zips contain.
       - run: npm run zip
       - run: npm run zip:newtab
+      - run: npm run budgets
 
       # `wxt zip` writes .output/tabitat-<version>-chrome.zip and
       # .output-newtab/tabitat-<version>-chrome.zip: same name, different folders. Rename them.
@@ -51,6 +70,32 @@ jobs:
           cp ".output/tabitat-${VERSION}-chrome.zip" "release-assets/tabitat-${VERSION}.zip"
           cp ".output-newtab/tabitat-${VERSION}-chrome.zip" "release-assets/tabitat-newtab-${VERSION}.zip"
           ls -l release-assets
+
+      - name: Verify packaged manifests
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for flavor in standard newtab; do
+            if [ "$flavor" = standard ]; then ZIP="release-assets/tabitat-${VERSION}.zip"; else ZIP="release-assets/tabitat-newtab-${VERSION}.zip"; fi
+            DIR="$(mktemp -d)"
+            unzip -q "$ZIP" -d "$DIR"
+            FLAVOR="$flavor" DIR="$DIR" node -e '
+              const fs = require("fs");
+              const { FLAVOR, DIR, VERSION } = process.env;
+              const fail = (m) => { console.log("::error::" + FLAVOR + " zip: " + m); process.exitCode = 1; };
+              const m = JSON.parse(fs.readFileSync(DIR + "/manifest.json", "utf8"));
+              if (m.manifest_version !== 3) fail("manifest_version is " + m.manifest_version + ", expected 3");
+              if (m.version !== VERSION) fail("version " + m.version + " does not match tag version " + VERSION);
+              const name = FLAVOR === "newtab" ? "__MSG_appNameNewTab__" : "__MSG_appName__";
+              if (m.name !== name) fail("name is " + m.name + ", expected " + name);
+              const nt = m.chrome_url_overrides && m.chrome_url_overrides.newtab;
+              if (FLAVOR === "newtab" && nt !== "dashboard.html") fail("chrome_url_overrides.newtab is " + nt + ", expected dashboard.html");
+              if (FLAVOR !== "newtab" && m.chrome_url_overrides !== undefined) fail("standard zip must not override the new tab page");
+              if ((m.permissions || []).includes("sessions")) fail("permissions still include sessions");
+              if (!fs.existsSync(DIR + "/_locales/en/messages.json")) fail("_locales/en/messages.json is missing");
+            '
+          done
 
       # Body = the "## [<version>]" section of CHANGELOG.md, up to the next "## [" heading or the
       # link definitions at the bottom of the file. Fails when the section is missing or empty.

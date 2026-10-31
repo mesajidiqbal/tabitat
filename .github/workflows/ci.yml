@@ -18,9 +18,10 @@ jobs:
       - run: npm run check
       - run: npm run build
       - run: npm run build:newtab
-      - run: npm run budgets
+      # Zip first: `wxt zip` rebuilds, so budgets must measure the build the zips contain.
       - run: npm run zip
       - run: npm run zip:newtab
+      - run: npm run budgets
       - uses: actions/upload-artifact@v4
         with:
           name: tabitat-zip

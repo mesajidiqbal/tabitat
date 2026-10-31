@@ -20,7 +20,7 @@ requested, and how to delete everything. The same text applies to both builds ("
 | Settings | Theme, widgets, suspension rules and excluded sites, snapshot, pomodoro and reminder options |
 | Session snapshots | The last generations of all windows (default 10, every 5 minutes by default; both configurable) |
 | Recently closed | The last 50 closed tabs |
-| Trash | Deleted workspaces and saved links, kept 30 days, then purged |
+| Trash | Deleted workspaces and saved links, the notes and todo lists archived by a replace import, and the tabs of a closed window that had no named workspace; kept 30 days, then purged |
 | Pomodoro state, backup reminder state, sync status | Timer phase and end time; when the reminder is due or snoozed |
 | Operation records | A short-lived record while a workspace switch or import is running, so it can resume after a crash |
 | Quarantined records | Stored data that failed validation, kept so you can download or delete it on the recovery page |
@@ -33,11 +33,13 @@ Where it lives:
 - `chrome.storage.session` holds caches that can be rebuilt. The browser's per-page storage
   (`localStorage` for collapsed side panel sections, `sessionStorage` for unsaved note drafts)
   holds interface state.
-- Nothing is stored outside your browser profile.
+- Nothing is stored outside your browser profile, unless you turn settings sync on (see below).
 
 ## What leaves the device
 
-Nothing is sent automatically. Tabitat makes no network requests of its own, has no analytics,
+Nothing is sent automatically, except that once you have turned settings sync on (see below),
+Tabitat writes your settings to the browser's sync storage whenever they change. Tabitat makes no
+network requests of its own, has no analytics,
 telemetry, crash reporting, advertising or remote code, and loads no web fonts or images from the
 internet. Production builds enforce this: the content security policy for extension pages is
 
@@ -54,9 +56,10 @@ involve the network only because you ask for them:
 - **Opening tabs.** Opening a saved tab or link loads that page, as any browser does. Restored
   tabs are placeholders and do not load their page until you activate them.
 - **Settings sync (off by default).** If you turn it on in Options, your settings (not tabs, notes,
-  todos, links or the wallpaper image) are written to `chrome.storage.sync`, which your browser
-  syncs through its own account service under that service's privacy policy. Tabitat itself makes
-  no request. Turning sync off leaves the copy already in sync storage; Tabitat does not delete it.
+  todos, links, the theme or an image wallpaper) are written to `chrome.storage.sync` each time
+  they change, which your browser syncs through its own account service under that service's
+  privacy policy. Tabitat itself makes no request. Turning sync off leaves the copy already in sync
+  storage; Tabitat does not delete it.
 - **Downloads you start.** Backup JSON and bookmarks-format HTML exports are files saved to your
   computer by the browser. They contain full URLs and titles (and, for JSON, notes and todos), so
   treat them as private. The HTML export has a "Strip query strings" option that removes query and
@@ -66,7 +69,7 @@ involve the network only because you ask for them:
 
 | Permission | Why Tabitat needs it |
 |---|---|
-| `tabs` | Read the URL, title, pinned state and position of your tabs to save and restore workspaces, search, find duplicates and suspend tabs. This is the only permission that exposes browsing data. |
+| `tabs` | Read the URL, title, pinned state and position of your tabs to save and restore workspaces, search, find duplicates and suspend tabs. It gives Tabitat the address and title of every tab in every window; Tabitat stores them as described above and sends them nowhere. |
 | `tabGroups` | Save and recreate tab groups (title, color, collapsed state). |
 | `storage` | Keep all data in `chrome.storage.local`, and settings in `chrome.storage.sync` only if you turn sync on. |
 | `unlimitedStorage` | Lift the default storage cap for large workspaces, snapshots and backups. |
@@ -75,7 +78,7 @@ involve the network only because you ask for them:
 | `favicon` | Show site icons through the extension's local `_favicon` endpoint, served from the browser's own cache. |
 | `notifications` | Tell you when a pomodoro phase ends. |
 | `search` | Run the dashboard web search with your default search engine. |
-| `bookmarks` (optional) | Requested only when you click "Choose bookmarks..." in Options to import bookmarks as quick links or workspaces. You can remove it afterwards from the same page. |
+| `bookmarks` (optional) | Requested only when you click "Choose bookmarks..." in Options to import bookmarks as quick links or workspaces. While it is granted, the Options page reads your bookmark folders, titles and URLs to show the folder picker; the import copies the titles and URLs of the folders you pick into Tabitat's own storage. You can remove the permission afterwards from the same page. |
 
 Tabitat requests no host permissions and has no content scripts, so it cannot read or change the
 content of any web page. `incognito` is set to `not_allowed`: Tabitat does not run in incognito
@@ -88,7 +91,13 @@ windows and never records them.
   your settings in sync storage, if you used sync, is not removed by Tabitat.
 - **Trash:** Options, Data, "Empty trash", or the recovery page, "Empty trash" or "Delete now" per
   item. Items are purged automatically after 30 days.
-- **A workspace or link:** delete it (it goes to the trash), then empty the trash.
+- **A workspace or link:** delete it (it goes to the trash), then empty the trash. Its URLs can
+  remain in session snapshots until newer snapshots replace them (default 10 generations, one every
+  5 minutes; both set in Options, Sessions) and in the recently closed list (last 50 entries).
+  Nothing deletes a single snapshot or clears the recently closed list. To push older snapshots out,
+  set "Snapshots to keep" to 3 (the minimum) and press "Take a snapshot now" three times (Options,
+  Sessions). Recently closed entries roll off as newer tabs close. Removing the extension deletes
+  both.
 - **Notes, todos, quick links:** delete them in the dashboard or side panel.
 - **Wallpaper image:** Customize, "Remove image" on the dashboard.
 - **Quarantined records:** the recovery page, Delete.

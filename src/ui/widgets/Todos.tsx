@@ -50,6 +50,7 @@ export function Todos({ compact }: WidgetProps) {
 function TodoList({ scope }: { scope: Scope }) {
   const stored = records.todos.value[scope] ?? EMPTY;
   const rec = useSyncedRecord<Todo[]>({
+    id: Keys.todos(scope),
     stored: { value: stored.items, rev: stored.rev },
     write: (items, expectedRev) =>
       send("todo.set", { scope, items, expectedRev }).then((r) => r.rev),
@@ -70,7 +71,9 @@ function TodoList({ scope }: { scope: Scope }) {
   /** The add waiting for its acknowledgement (a repeated Enter does not add it twice). */
   const adding = useRef<string | null>(null);
   const [drag, setDrag] = useState<{ id: string; over: string | null } | null>(null);
-  const roving = useRoving(items.length);
+  const addRef = useRef<HTMLInputElement>(null);
+  // The last todo went (deleted, cleared): focus the add box, the list's primary control (C2.3).
+  const roving = useRoving(items.length, { onEmpty: () => addRef.current?.focus() });
   const hintId = useId();
   const full = items.length >= TODO_CAP;
   const doneCount = items.filter((x) => x.done).length;
@@ -99,6 +102,7 @@ function TodoList({ scope }: { scope: Scope }) {
   return (
     <>
       <input
+        ref={addRef}
         class={c.input}
         aria-label={t("dashTodoAdd")}
         placeholder={full ? t("dashTodoFull", TODO_CAP) : t("dashTodoAdd")}

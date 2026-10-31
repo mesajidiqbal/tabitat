@@ -96,9 +96,11 @@ page (`chrome://extensions/shortcuts` in Chrome). Browsers may refuse a key anot
 ## Privacy
 
 Tabitat stores your workspaces, tabs, notes and todos in the browser's local extension storage and
-sends nothing anywhere. Production builds ship a content security policy with `connect-src 'none'`,
-so the browser itself blocks network requests from extension pages and the service worker. There
-are no host permissions, no content scripts and no analytics. Incognito windows are never tracked.
+sends nothing off the device except what you ask for: a web search you submit from the dashboard,
+optional settings sync through the browser's own sync storage, and backups you download.
+Production builds ship a content security policy with `connect-src 'none'`, so the browser itself
+blocks network requests from extension pages and the service worker. There are no host
+permissions, no content scripts and no analytics. Incognito windows are never tracked.
 Details, permissions and data deletion: [PRIVACY.md](PRIVACY.md).
 
 ## Development

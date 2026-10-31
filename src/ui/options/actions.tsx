@@ -5,9 +5,10 @@ import c from "../components/controls.module.css";
 import s from "./options.module.css";
 
 /**
- * Inline two-step confirmation for a destructive action (no `confirm()` dialog). Opening it moves
- * focus to the confirm button; Tab / Shift+Tab cycle inside it (focus trap); Escape cancels;
- * focus returns to the trigger afterwards.
+ * Inline two-step confirmation for a destructive action (no `confirm()` dialog). It is part of
+ * the page, not an overlay, so it does not claim to be modal (review C3.4): a `group` labelled by
+ * its prompt, no focus trap. Opening it moves focus to Cancel (the least destructive choice);
+ * Escape cancels; focus returns to the trigger afterwards.
  */
 export function ConfirmAction(p: {
   label: string;
@@ -17,11 +18,11 @@ export function ConfirmAction(p: {
 }) {
   const [asking, setAsking] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const confirm = useRef<HTMLButtonElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
   const restore = useRef(false);
   const promptId = useId();
   useEffect(() => {
-    if (asking) confirm.current?.focus();
+    if (asking) cancel.current?.focus();
     else if (restore.current) {
       restore.current = false;
       trigger.current?.focus();
@@ -45,20 +46,12 @@ export function ConfirmAction(p: {
     );
   }
   return (
+    // biome-ignore lint/a11y/useSemanticElements: an inline button group, not a form fieldset
     <div
       class={s.confirm}
-      role="alertdialog"
-      aria-label={p.label}
-      aria-describedby={promptId}
+      role="group"
+      aria-labelledby={promptId}
       onKeyDown={(e) => {
-        if (e.key === "Tab") {
-          const list = [...e.currentTarget.querySelectorAll<HTMLElement>("button")];
-          const i = list.indexOf(document.activeElement as HTMLElement);
-          const next = list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length];
-          e.preventDefault();
-          next?.focus();
-          return;
-        }
         if (e.key !== "Escape") return;
         e.preventDefault();
         e.stopPropagation();
@@ -67,7 +60,6 @@ export function ConfirmAction(p: {
     >
       <span id={promptId}>{p.prompt}</span>
       <button
-        ref={confirm}
         type="button"
         class={`${c.btn} ${c.dangerBtn}`}
         onClick={() => {
@@ -77,7 +69,7 @@ export function ConfirmAction(p: {
       >
         {t("optConfirm")}
       </button>
-      <button type="button" class={c.btn} onClick={close}>
+      <button ref={cancel} type="button" class={c.btn} onClick={close}>
         {t("cancel")}
       </button>
     </div>

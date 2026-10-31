@@ -18,7 +18,9 @@ export function SectionHeader(p: SectionHeaderProps) {
   const count = p.count === undefined ? null : <span class={s.count}>({p.count})</span>;
   return (
     <div class={`${s.header} ${p.sticky ? s.sticky : ""}`}>
-      <h2 class={s.title} id={p.id}>
+      {/* Focusable by script (tabIndex -1): where focus goes when the section's list empties
+          under it (useRoving onEmpty); a disclosure heading takes it on its button instead. */}
+      <h2 class={s.title} id={p.id} tabIndex={p.onToggle ? undefined : -1}>
         {p.onToggle ? (
           <button
             type="button"

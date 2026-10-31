@@ -1,4 +1,7 @@
-/** WORKSPACES: inline form and the grid of rows (popup) or cards (side panel). */
+/**
+ * WORKSPACES: inline form and the grid of rows (popup) or cards (side panel; arrows move between
+ * cards in two dimensions). When the last row goes, focus moves to the search box.
+ */
 import { t } from "@/i18n";
 import { newWorkspaceOpen } from "../actions";
 import c from "../components/controls.module.css";
@@ -7,7 +10,7 @@ import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { WorkspaceForm } from "../components/WorkspaceForm";
 import { WorkspaceRow } from "../components/WorkspaceRow";
-import { useRoving } from "../hooks/useRoving";
+import { focusFirst, gridColumns, useRoving } from "../hooks/useRoving";
 import { IconPlus } from "../icons";
 import { activeWorkspaceId, busy, liveTabCount, owners, store, workspaces } from "../store";
 import s from "./sections.module.css";
@@ -22,8 +25,13 @@ export function WorkspacesSection(p: { variant: "popup" | "panel"; onExitTop?: (
   const tabs = store.wsTabs.value;
   const liveCount = liveTabCount.value;
   const ready = store.ready.value;
-  const roving = useRoving(list.length, p.onExitTop ? { onExitTop: p.onExitTop } : {});
   const panel = p.variant === "panel";
+  const roving = useRoving(list.length, {
+    ...(p.onExitTop ? { onExitTop: p.onExitTop } : {}),
+    onEmpty: p.onExitTop ?? (() => focusFirst("ws-h")),
+    // Side panel cards wrap into columns: arrows move in two dimensions (C3.3).
+    ...(panel ? { columns: () => gridColumns(document.getElementById(WS_LIST_ID)) } : {}),
+  });
   return (
     <section class={s.section} aria-labelledby="ws-h">
       <SectionHeader id="ws-h" title={t("workspaces")} count={list.length} sticky={panel}>

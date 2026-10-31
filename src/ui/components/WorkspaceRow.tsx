@@ -3,7 +3,10 @@
  * Workspace grid row (popup row / side-panel and dashboard card): a primary cell (holds the
  * roving tabindex) and an actions cell with the "…" menu. Click or Enter / Space switches; the
  * menu (also Shift+F10 / ContextMenu) opens in a new window, renames (F2), recolours, deletes
- * (Delete). ArrowRight moves to the menu button, ArrowLeft back.
+ * (Delete). In a list ArrowRight moves to the menu button, ArrowLeft back; cards sit in a
+ * two-dimensional grid (the list's `useRoving` has `columns`), so there the arrows move between
+ * cards and the menu opens with Shift+F10 / ContextMenu (or a click on its button). Finishing or
+ * cancelling a rename with Enter / Escape returns focus to the primary cell.
  */
 import { useRef, useState } from "preact/hooks";
 import type { WorkspaceMeta } from "@/core/model/types";
@@ -49,6 +52,12 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
   // The Unsorted workspace of a live window is that window's own tabs: not deletable while open.
   const deletable = !(unsorted && (p.active || p.elsewhere));
   const open = () => !p.disabled && !renaming && void switchTo(meta.id);
+  /** Ends the rename; focus goes back to the primary cell if it is still on the input. */
+  const endRename = (input: HTMLElement) => {
+    const keep = document.activeElement === input;
+    setRenaming(false);
+    if (keep) cell.current?.focus();
+  };
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.target === e.currentTarget && !renaming) {
@@ -60,7 +69,14 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
       } else if (k === "Delete") {
         if (deletable && !p.disabled) void deleteWorkspace(meta.id, name);
       } else if (k === "ContextMenu" || (k === "F10" && e.shiftKey)) menuBtn.current?.click();
-      else if (k === "ArrowRight" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey)
+      else if (
+        k === "ArrowRight" &&
+        !p.card &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey
+      )
         focusActions(e.currentTarget as HTMLElement);
       else return p.item.onKeyDown(e);
       e.preventDefault();
@@ -118,9 +134,12 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
               onBlur={() => setRenaming(false)}
               onKeyDown={(e) => {
                 e.stopPropagation();
-                const v = e.currentTarget.value.trim();
-                if (e.key === "Enter" && v) void update({ name: v }).then(() => setRenaming(false));
-                if (e.key === "Escape") setRenaming(false);
+                const input = e.currentTarget;
+                const v = input.value.trim();
+                // Enter / Escape hand focus back to the row (the input unmounts); a blur to
+                // elsewhere just ends the rename (C2.2).
+                if (e.key === "Enter" && v) void update({ name: v }).then(() => endRename(input));
+                if (e.key === "Escape") endRename(input);
               }}
             />
           ) : (

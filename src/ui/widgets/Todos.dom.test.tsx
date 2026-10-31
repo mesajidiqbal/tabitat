@@ -6,6 +6,7 @@ import { setTransport } from "@/messaging/client";
 import type { RpcRequest } from "@/messaging/commands";
 import { records } from "./records";
 import { Todos } from "./Todos";
+import { resetSyncedRecords } from "./useSyncedRecord";
 
 type SetPayload = { scope: string; items: Todo[]; expectedRev?: number };
 let sets: SetPayload[] = [];
@@ -27,6 +28,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetSyncedRecords();
   setTransport(null);
   vi.unstubAllGlobals();
   records.todos.value = {};
@@ -128,6 +130,42 @@ describe("Todos (DOM)", () => {
     expect(sets[1]?.items.map((x) => [x.text, x.done])).toEqual([["Buy milk", true]]);
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     await waitFor(() => expect((addInput() as HTMLInputElement).value).toBe(""));
+  });
+
+  it("a failed edit and its error survive an unmount; the remounted list retries it (C5.3)", async () => {
+    failWith = "internal";
+    const first = render(<Todos />);
+    add("Buy milk");
+    await screen.findByRole("alert");
+    expect(sets).toHaveLength(1);
+    // Scope switch / panel collapse / widget toggled off: the editor goes away.
+    first.unmount();
+    expect(screen.queryByRole("alert")).toBeNull();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(sets).toHaveLength(1);
+    render(<Todos />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Not saved: Something went wrong.");
+    expect(rowTexts()).toEqual(["Buy milk"]);
+    failWith = null;
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(sets).toHaveLength(2));
+    expect(sets[1]?.items.map((x) => x.text)).toEqual(["Buy milk"]);
+    expect(sets[1]?.expectedRev).toBe(0);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(rowTexts()).toEqual(["Buy milk"]);
+  });
+
+  it("deleting the last todo moves focus to the add box (C2.3)", async () => {
+    records.todos.value = {
+      global: { rev: 1, items: [{ id: "t0", text: "only", done: false, order: 0, createdAt: 1 }] },
+    };
+    render(<Todos />);
+    const box = screen.getByRole("checkbox", { name: "Done: only" });
+    box.focus();
+    fireEvent.keyDown(box, { key: "Delete" });
+    await waitFor(() => expect(document.activeElement).toBe(addInput()));
+    await waitFor(() => expect(sets).toHaveLength(1));
   });
 
   it("Discard drops the failed edits and the error", async () => {

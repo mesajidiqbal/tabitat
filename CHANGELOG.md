@@ -69,8 +69,8 @@ Onboarding, accessibility, i18n, release
 - Grid pattern for the workspace, tab, saved link and recently closed lists; labels and live
   regions for icon-only controls, toasts, progress and errors; visible focus rings; automated axe
   checks in the end-to-end suite.
-- All user-facing strings, the manifest name and description and the command descriptions come
-  from `_locales/en`; `npm run i18n` checks keys and placeholders.
+- All user-facing strings (including worker notifications), the manifest name and description and
+  the command descriptions come from `_locales/en`; `npm run i18n` checks keys and placeholders.
 - Performance budgets enforced in CI (gzip size per surface and in total).
 - Store listing text and screenshots, `PRIVACY.md`, `SECURITY.md`, `COMPATIBILITY.md` and a tag-driven
   release workflow that attaches both zips to the GitHub release.

@@ -6,6 +6,7 @@ import { setTransport } from "@/messaging/client";
 import type { RpcRequest } from "@/messaging/commands";
 import { store } from "../store";
 import { QuickLinksGrid } from "./QuickLinksGrid";
+import { resetSyncedRecords } from "./useSyncedRecord";
 
 type SetPayload = { items: QuickLink[]; expectedRev?: number };
 let sets: SetPayload[] = [];
@@ -34,6 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetSyncedRecords();
   setTransport(null);
   vi.unstubAllGlobals();
   store.quicklinks.value = [];

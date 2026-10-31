@@ -53,7 +53,7 @@
 .control {
   height: 28px;
   padding: 0 var(--sp-3);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius-sm);
   background: var(--bg);
 }
@@ -102,7 +102,7 @@
   width: 100%;
   min-height: 120px;
   padding: var(--sp-3);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-input);
   border-radius: var(--radius-sm);
   background: var(--bg);
   font: var(--fs-sm) / 1.5 var(--font-mono);

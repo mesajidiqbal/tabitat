@@ -33,6 +33,7 @@
   --fg-subtle: #5f6672; /* ≥ 4.5:1 on --bg, --bg-sunken and --bg-hover */
   --border: #e3e5e9;
   --border-strong: #c9cdd4;
+  --border-input: #808792; /* text-entry borders: 3.62:1 on --bg, 3.35:1 on --bg-sunken (≥ 3:1) */
   --accent: #2560c8; /* ≥ 4.5:1 as text on every light background token */
   --accent-hover: #1d4fa8;
   --accent-fg: #ffffff;
@@ -71,6 +72,7 @@
     --fg-subtle: #959ca8; /* ≥ 4.5:1 on every dark background token */
     --border: #2b2e35;
     --border-strong: #3c414b;
+    --border-input: #6c7480; /* 3.73:1 on --bg, 3.33:1 on --bg-elev (≥ 3:1) */
     --accent: #7aa7ff;
     --accent-hover: #9bbcff;
     --accent-fg: #0d1526;
@@ -109,6 +111,7 @@
   --fg-subtle: #959ca8; /* ≥ 4.5:1 on every dark background token */
   --border: #2b2e35;
   --border-strong: #3c414b;
+  --border-input: #6c7480; /* 3.73:1 on --bg, 3.33:1 on --bg-elev (≥ 3:1) */
   --accent: #7aa7ff;
   --accent-hover: #9bbcff;
   --accent-fg: #0d1526;

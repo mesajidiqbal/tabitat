@@ -4,7 +4,8 @@
  * tabindex; the actions cell holds the row's buttons. ArrowRight on the primary cell focuses the
  * first action; inside the actions cell Left/Right move between buttons (Left on the first one
  * goes back to the primary cell), Up/Down move to the neighbouring row's actions (or its primary
- * cell when it has none) and Home/End move to the first/last row's primary cell.
+ * cell when it has none) and Home/End move to the first/last row's primary cell. Focus landing
+ * on an action (a pointer click) makes the row the roving tab stop.
  */
 import type { ComponentChildren } from "preact";
 import { t } from "@/i18n";
@@ -50,14 +51,23 @@ export function ActionsCell(p: { item: RovingItem; class?: string; children: Com
     e.preventDefault();
     e.stopPropagation();
   };
+  // A pointer click on an action makes this row the roving tab stop (and the node the "focused
+  // node removed" repair watches), as keyboard paths through the primary cell do (C2.1).
+  const onFocusIn = (e: FocusEvent) => {
+    if (!(e.target as HTMLElement).closest('[role="menu"]')) p.item.onFocus();
+  };
+  // "Actions" is a description, not the cell's name: an open row menu renders inside the cell,
+  // and a name that leaves out its visible items fails label-content-name-mismatch (axe, C3.6).
+  // The cell is named from its content (the buttons' labels).
   return (
     // biome-ignore lint/a11y/useFocusableInteractive: the buttons inside are the focus targets
     <span
       role="gridcell"
-      aria-label={t("rowActionsCell")}
+      aria-description={t("rowActionsCell")}
       data-cell="actions"
       class={[s.actionsCell, p.class].filter(Boolean).join(" ")}
       onKeyDown={onKeyDown}
+      onFocusIn={onFocusIn}
     >
       {p.children}
     </span>

@@ -13,10 +13,10 @@ import { EmptyState } from "../components/EmptyState";
 import r from "../components/rows.module.css";
 import { WorkspaceForm } from "../components/WorkspaceForm";
 import { WorkspaceRow } from "../components/WorkspaceRow";
-import { useRoving } from "../hooks/useRoving";
+import { focusFirst, gridColumns, useRoving } from "../hooks/useRoving";
 import { IconPlus } from "../icons";
 import { activeWorkspaceId, busy, liveTabCount, owners, store, workspaces } from "../store";
-import { Card, type WidgetProps } from "./Card";
+import { Card, cardTitleId, type WidgetProps } from "./Card";
 import s from "./widgets.module.css";
 
 export const DASH_WS_LIST_ID = "dash-ws-list";
@@ -29,7 +29,11 @@ export function WorkspacesWidget({ compact }: WidgetProps) {
   const tabs = store.wsTabs.value;
   const liveCount = liveTabCount.value;
   const [adding, setAdding] = useState(false);
-  const roving = useRoving(list.length);
+  const roving = useRoving(list.length, {
+    onEmpty: () => focusFirst(cardTitleId("workspaces")),
+    // Cards wrap into columns: arrows move in two dimensions (C3.3).
+    columns: () => gridColumns(document.getElementById(DASH_WS_LIST_ID)),
+  });
 
   /** Middle-click on a card: open that workspace in a new window. */
   const onAux = (e: MouseEvent) => {

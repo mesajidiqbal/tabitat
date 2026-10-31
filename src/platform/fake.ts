@@ -737,7 +737,13 @@ export class FakeBrowser {
       runtime: {
         id: this.extensionId,
         getURL: (path) => `chrome-extension://${this.extensionId}/${path.replace(/^\//, "")}`,
-        getMessage: (key) => this.messages.get(key) ?? "",
+        getMessage: (key, subs) => {
+          const list = subs === undefined ? [] : Array.isArray(subs) ? subs : [subs];
+          return (this.messages.get(key) ?? "").replace(
+            /\$([1-9])/g,
+            (_m, i) => list[Number(i) - 1] ?? "",
+          );
+        },
       },
       now: () => this.clock,
       newId: () => `id-${++this.idSeq}`,

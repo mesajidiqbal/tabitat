@@ -13,11 +13,11 @@ import { send } from "@/messaging/client";
 import c from "../components/controls.module.css";
 import { EmptyState } from "../components/EmptyState";
 import { showToast } from "../components/Toast";
-import { rovingAction, useRoving } from "../hooks/useRoving";
+import { focusFirst, rovingAction, useRoving } from "../hooks/useRoving";
 import { IconPlus } from "../icons";
 import { sanitizeQuickLinks, sanitizeRev } from "../sanitize";
 import { store } from "../store";
-import { Card, SaveError, type WidgetProps } from "./Card";
+import { Card, cardTitleId, SaveError, type WidgetProps } from "./Card";
 import { QuickLinkForm } from "./QuickLinkForm";
 import { QuickLinkTile } from "./QuickLinkTile";
 import {
@@ -38,6 +38,7 @@ const fullCheck = (v: readonly QuickLink[]) =>
 
 export function QuickLinksGrid({ compact }: WidgetProps) {
   const rec = useSyncedRecord<QuickLink[]>({
+    id: Keys.quicklinks,
     stored: { value: store.quicklinks.value, rev: store.quicklinksRev.value },
     write: (items, expectedRev) => send("quicklink.set", { items, expectedRev }).then((r) => r.rev),
     reread: async () => {
@@ -52,7 +53,15 @@ export function QuickLinksGrid({ compact }: WidgetProps) {
   /** The form's change is waiting for the worker (a second Save is ignored). */
   const saving = useRef(false);
   const [drag, setDrag] = useState<{ id: string; over: string | null } | null>(null);
-  const roving = useRoving(links.length);
+  // The last tile went: focus the Add button (or the card title while the form is open) (C2.3).
+  const roving = useRoving(links.length, {
+    onEmpty: () => {
+      const root = document.querySelector<HTMLElement>('[data-widget="quicklinks"]');
+      const add = root?.querySelector<HTMLElement>("[data-add-link]");
+      if (add) add.focus();
+      else focusFirst(cardTitleId("quicklinks"));
+    },
+  });
   const full = links.length >= QUICKLINK_CAP;
   const editing = form && form !== "new" ? links.find((x) => x.id === form) : undefined;
 

@@ -11,7 +11,7 @@ import f from "../components/forms.module.css";
 import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { TabRow } from "../components/TabRow";
-import { useRoving } from "../hooks/useRoving";
+import { focusFirst, useRoving } from "../hooks/useRoving";
 import { IconClose, IconPlus } from "../icons";
 import { activeMeta, store } from "../store";
 import { isSavedLink, parkTab, TAB_DRAG_TYPE } from "../tabActions";
@@ -97,7 +97,7 @@ export function LinksSection(p: { variant: "popup" | "panel" }) {
   const [adding, setAdding] = useState(false);
   const [over, setOver] = useState(false);
   const links = meta ? [...meta.resources].sort((a, b) => a.order - b.order) : [];
-  const roving = useRoving(links.length);
+  const roving = useRoving(links.length, { onEmpty: () => focusFirst("links-h", "tabs-h") });
   if (!meta) return null;
   const onDragOver = (e: DragEvent) => {
     if (!draggingTab(e)) return;

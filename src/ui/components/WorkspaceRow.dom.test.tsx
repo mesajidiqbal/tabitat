@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // biome-ignore-all lint/a11y/useSemanticElements: ARIA grid of div rows (flex rows and card layouts; no table elements)
-import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceMeta } from "@/core/model/types";
 
@@ -12,6 +12,8 @@ vi.mock("../actions", async (orig) => ({
   deleteWorkspace,
 }));
 
+import { setTransport } from "@/messaging/client";
+import type { RpcRequest } from "@/messaging/commands";
 import { useRoving } from "../hooks/useRoving";
 import { WorkspaceRow } from "./WorkspaceRow";
 
@@ -27,11 +29,19 @@ const meta = (id: string, name: string): WorkspaceMeta => ({
 });
 const METAS = [meta("a", "Alpha"), meta("b", "Beta"), meta("c", "Gamma")];
 
-function Grid({ card = false }: { card?: boolean }) {
-  const roving = useRoving(METAS.length);
+function Grid({
+  card = false,
+  cols,
+  metas = METAS,
+}: {
+  card?: boolean;
+  cols?: number;
+  metas?: WorkspaceMeta[];
+}) {
+  const roving = useRoving(metas.length, cols === undefined ? {} : { columns: () => cols });
   return (
-    <div role="grid" aria-label="Workspaces" aria-rowcount={METAS.length}>
-      {METAS.map((m, i) => (
+    <div role="grid" aria-label="Workspaces" aria-rowcount={metas.length}>
+      {metas.map((m, i) => (
         <WorkspaceRow
           key={m.id}
           meta={m}
@@ -65,6 +75,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setTransport(null);
 });
 
 describe("WorkspaceRow grid", () => {
@@ -74,7 +85,8 @@ describe("WorkspaceRow grid", () => {
     expect(rows().map((r) => r.getAttribute("aria-rowindex"))).toEqual(["1", "2", "3"]);
     const cells = rows()[1]?.querySelectorAll(':scope > [role="gridcell"]') ?? [];
     expect(cells).toHaveLength(2);
-    expect(cells[1]?.getAttribute("aria-label")).toBe("Actions");
+    expect(cells[1]?.getAttribute("aria-description")).toBe("Actions");
+    expect(cells[1]?.hasAttribute("aria-label")).toBe(false);
     expect(primary(1).getAttribute("aria-keyshortcuts")).toBe("2 F2 Delete Shift+F10 ContextMenu");
     expect(primary(0).tabIndex).toBe(0);
     expect(primary(1).tabIndex).toBe(-1);
@@ -94,7 +106,7 @@ describe("WorkspaceRow grid", () => {
   });
 
   it("ArrowUp / ArrowDown / Home / End move rows from the primary cell and the actions cell", () => {
-    render(<Grid card />);
+    render(<Grid />);
     primary(0).focus();
     key("ArrowDown");
     expect(document.activeElement).toBe(primary(1));
@@ -135,5 +147,65 @@ describe("WorkspaceRow grid", () => {
     expect(deleteWorkspace).toHaveBeenCalledWith("b", "Beta");
     key("F10", { shiftKey: true });
     expect(screen.getByRole("menu", { name: "Actions for Beta" })).toBeTruthy();
+  });
+
+  it("cards move in two dimensions; ArrowRight goes to the next card, not the menu (C3.3)", () => {
+    const metas = [...METAS, meta("d", "Delta")];
+    render(<Grid card cols={2} metas={metas} />);
+    primary(0).focus();
+    key("ArrowRight");
+    expect(document.activeElement).toBe(primary(1));
+    key("ArrowDown");
+    expect(document.activeElement).toBe(primary(3));
+    key("ArrowLeft");
+    expect(document.activeElement).toBe(primary(2));
+    key("ArrowUp");
+    expect(document.activeElement).toBe(primary(0));
+    // The menu still opens from the keyboard, and Escape returns to the card.
+    key("F10", { shiftKey: true });
+    expect(screen.getByRole("menu", { name: "Actions for Alpha" })).toBeTruthy();
+    key("Escape");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(primary(0));
+    expect(primary(0).getAttribute("aria-keyshortcuts")).toBe("1 F2 Delete Shift+F10 ContextMenu");
+    expect(switchTo).not.toHaveBeenCalled();
+  });
+
+  it("focus on an action (a click) makes its row the tab stop; removing it repairs focus (C2.1)", async () => {
+    const { rerender } = render(<Grid />);
+    actionsBtn(2).focus();
+    await waitFor(() => expect(primary(2).tabIndex).toBe(0));
+    expect(primary(0).tabIndex).toBe(-1);
+    rerender(<Grid metas={METAS.slice(0, 2)} />);
+    await waitFor(() => expect(document.activeElement).toBe(primary(1)));
+  });
+
+  it("Enter in the rename box saves and returns focus to the primary cell (C2.2)", async () => {
+    const sent: RpcRequest[] = [];
+    setTransport(async (msg: RpcRequest) => {
+      sent.push(msg);
+      return { ok: true, value: {} };
+    });
+    render(<Grid />);
+    primary(1).focus();
+    key("F2");
+    const input = await screen.findByRole("textbox", { name: "Rename" });
+    input.focus(); // autoFocus (happy-dom does not apply it)
+    fireEvent.input(input, { target: { value: "Bravo" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    expect(sent[0]).toMatchObject({ type: "workspace.update", payload: { id: "b" } });
+    expect(document.activeElement).toBe(primary(1));
+  });
+
+  it("Escape cancels the rename and returns focus to the primary cell (C2.2)", async () => {
+    render(<Grid />);
+    primary(2).focus();
+    key("F2");
+    const input = await screen.findByRole("textbox", { name: "Rename" });
+    input.focus(); // autoFocus (happy-dom does not apply it)
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("textbox")).toBeNull());
+    expect(document.activeElement).toBe(primary(2));
   });
 });

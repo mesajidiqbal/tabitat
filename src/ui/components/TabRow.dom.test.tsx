@@ -215,7 +215,8 @@ describe("TabRow grid keys", () => {
     expect(rows.map((r) => r.getAttribute("aria-rowindex"))).toEqual(["1", "2", "3"]);
     const cells = rows[0]?.querySelectorAll(':scope > [role="gridcell"]') ?? [];
     expect(cells).toHaveLength(2);
-    expect(cells[1]?.getAttribute("aria-label")).toBe("Actions");
+    expect(cells[1]?.getAttribute("aria-description")).toBe("Actions");
+    expect(cells[1]?.hasAttribute("aria-label")).toBe(false);
     expect(screen.queryAllByRole("option")).toHaveLength(0);
     // One tab stop: the first row's primary cell; buttons are reached with the arrows.
     const stops = [...document.querySelectorAll<HTMLElement>("[tabindex]")].filter(

@@ -52,8 +52,8 @@ Behaviour
 ## Side panel (min 320 px wide, full height)
 Same sections as the popup, stacked with sticky section headers and more
 room: workspaces as cards (name, color, tab count, last active), the tab
-list with drag to reorder (optional, Phase 3), saved links with drag from
-tab list. Header has "Pin" hint removed (native). Opens via toolbar
+list (no drag reorder; the browser owns tab order), saved links with drag from
+the tab list. Header has "Pin" hint removed (native). Opens via toolbar
 button menu, popup button (`sidePanel.open` inside the click handler) or
 command `toggle-side-panel`.
 
@@ -82,6 +82,16 @@ no external UI libs.
 Roles (Phase 5): the workspace, tab, saved-link and recently-closed lists are `grid`/`row`/`gridcell` (primary cell + an "Actions" cell; ←/→ between cells, ↑/↓/Home/End between rows) with roving tabindex; search results stay `listbox`/`option` (combobox pattern); buttons have
 labels; focus ring visible; color is never the only signal (name text +
 dot). Respect `prefers-reduced-motion`.
+
+Deliberate deviations from the ARIA Authoring Practices grid pattern: Home and End move between
+rows (to the first or last row's primary cell), not between cells. Each row has one actions cell;
+inside it →/← move between its buttons, ← on the first button returns to the primary cell and →
+on the last stops. This simplifies the APG "widget mode" (Enter/Escape to enter and leave a cell).
+On the dashboard workspace cards, ←/→ move to the neighbouring card and ↑/↓ to the card above or
+below (the column count comes from the layout); the card menu opens with Shift+F10 or ContextMenu.
+Deleting the last row of a list moves focus to the section heading (or to the search box when the
+list had no heading). The options confirmation is an inline `group`, not a modal dialog: focus goes
+to Cancel and Escape cancels.
 
 ## Performance
 Popup JS ≤ 40 KB gz; first paint ≤ 100 ms measured in Playwright

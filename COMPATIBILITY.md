@@ -41,7 +41,9 @@ says **verify**.
 - **Alarms.** The 30-second floor for `chrome.alarms` is enforced by Chrome only on packaged
   installs; Tabitat never asks for less (S5). Not measured on a packaged install.
 - **Service worker.** The worker is stopped after about 30 seconds idle in the tested Chrome and
-  Brave (S6) and restarts on the next message; Tabitat keeps no state in memory (ARCHITECTURE 5.2).
+  Brave (S6) and restarts on the next message; nothing durable lives only in memory: every record
+  is written to storage before the worker may stop, and in-flight operations keep a journal so they
+  resume (ARCHITECTURE 5.2).
 - **Side panel.** Opening it needs a user gesture (toolbar button, popup button, or the
   `toggle-side-panel` command); it cannot be opened from the worker without one (S10).
 - **Keyboard shortcuts.** Whether a key is accepted depends on the browser's own shortcut handling

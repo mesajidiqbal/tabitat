@@ -241,7 +241,10 @@ function callArgs(toks, open) {
   return args;
 }
 
-/** Number of substitutions an argument passes: an array literal's length, else "some". */
+/**
+ * Number of substitutions an argument passes: an array literal's length; a string, a template
+ * without expressions or a number literal is exactly 1; anything else is "some".
+ */
 function subsCount(arg) {
   if (arg === undefined) return 0;
   const first = arg[0];
@@ -258,6 +261,10 @@ function subsCount(arg) {
     }
     // A trailing comma does not add an element.
     return inner[inner.length - 1]?.value === "," ? count - 1 : count;
+  }
+  if (arg.length === 1) {
+    if (first.type === "str" || first.type === "num") return 1;
+    if (first.type === "tpl" && !first.dynamic) return 1;
   }
   return "some";
 }
@@ -465,6 +472,10 @@ export function checkI18n(root, options = {}) {
           `${at} ${c.callee}("${c.key}") passes substitutions; the message uses none`,
         );
       }
+    } else if (u.maxIndex === 0) {
+      problems.placeholders.push(
+        `${at} ${c.callee}("${c.key}") passes substitutions; the message uses none`,
+      );
     } else if (c.subs !== u.maxIndex) {
       problems.placeholders.push(
         `${at} ${c.callee}("${c.key}") passes ${c.subs} substitution(s); the message uses up to $${u.maxIndex}`,

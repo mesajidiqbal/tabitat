@@ -12,6 +12,9 @@ export interface WidgetProps {
   compact?: boolean;
 }
 
+/** Id of a card's title (focusable by script: where focus goes when the card's list empties). */
+export const cardTitleId = (id: string) => `w-${id}-h`;
+
 export function Card(p: {
   id: string;
   title: string;
@@ -19,7 +22,7 @@ export function Card(p: {
   actions?: ComponentChildren;
   children?: ComponentChildren;
 }) {
-  const hid = `w-${p.id}-h`;
+  const hid = cardTitleId(p.id);
   return (
     <section
       class={p.compact ? s.compact : s.card}
@@ -32,7 +35,7 @@ export function Card(p: {
           {p.compact ? (
             <span class={s.title} />
           ) : (
-            <h2 class={s.title} id={hid}>
+            <h2 class={s.title} id={hid} tabIndex={-1}>
               {p.title}
             </h2>
           )}

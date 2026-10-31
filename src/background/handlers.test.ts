@@ -295,12 +295,46 @@ describe("pomodoro", () => {
     await h.svc.onAlarm("pomodoro");
     expect(stored<PomodoroState>(h.fake, Keys.pomodoro)?.phase).toBe("break");
     expect(h.fake.notifications).toHaveLength(1);
+    expect(h.fake.notifications[0]).toMatchObject({
+      title: "Focus finished",
+      message: "Short break started",
+    });
     const skipped = await h.ok("pomodoro.skip", {});
     expect(skipped?.phase).toBe("work");
     expect(await h.ok("pomodoro.stop", {})).toBeNull();
     expect(h.fake.alarms.has("pomodoro")).toBe(false);
     expect(await h.ok("pomodoro.skip", {})).toBeNull();
     await h.svc.onAlarm("pomodoro");
+  });
+});
+
+describe("pomodoro notification text", () => {
+  it("uses the localized title, body and phase names", async () => {
+    const h = await setup();
+    h.fake.messages.set("pomoNotifyTitle", "$1 terminado");
+    h.fake.messages.set("pomoNotifyBody", "$1 iniciado");
+    h.fake.messages.set("dashPomodoroWork", "Enfoque");
+    h.fake.messages.set("dashPomodoroBreak", "Descanso corto");
+    await h.ok("pomodoro.start", {});
+    h.fake.advance(25 * 60_000);
+    await h.svc.onAlarm("pomodoro");
+    expect(h.fake.notifications).toHaveLength(1);
+    expect(h.fake.notifications[0]).toMatchObject({
+      title: "Enfoque terminado",
+      message: "Descanso corto iniciado",
+    });
+  });
+
+  it("falls back to English when the messages are empty", async () => {
+    const h = await setup();
+    h.fake.messages.set("pomoNotifyTitle", "  ");
+    await h.ok("pomodoro.start", {});
+    h.fake.advance(25 * 60_000);
+    await h.svc.onAlarm("pomodoro");
+    expect(h.fake.notifications[0]).toMatchObject({
+      title: "Focus finished",
+      message: "Short break started",
+    });
   });
 });
 

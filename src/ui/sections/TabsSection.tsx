@@ -13,7 +13,7 @@ import r from "../components/rows.module.css";
 import { SectionHeader } from "../components/SectionHeader";
 import { TabGroupHeader } from "../components/TabGroupHeader";
 import { type RowAction, TabRow } from "../components/TabRow";
-import { useRoving } from "../hooks/useRoving";
+import { focusFirst, useRoving } from "../hooks/useRoving";
 import { IconClose, IconDupes, IconMore, IconPark, IconSleep } from "../icons";
 import {
   activeWorkspaceId,
@@ -85,7 +85,7 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
     if (n.kind === "tab") tabPos.set(n.tab.id, i);
     else headerPos.set(n.groupId, i);
   });
-  const roving = useRoving(nodes.length);
+  const roving = useRoving(nodes.length, { onEmpty: () => focusFirst("tabs-h") });
   const disabled = busy.value;
   const panel = p.variant === "panel";
 
