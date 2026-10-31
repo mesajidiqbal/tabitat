@@ -3,7 +3,8 @@
  * Cells of a grid row (docs/PHASE5.md §2): the primary cell holds the row content and the roving
  * tabindex; the actions cell holds the row's buttons. ArrowRight on the primary cell focuses the
  * first action; inside the actions cell Left/Right move between buttons (Left on the first one
- * goes back to the primary cell) and Up/Down/Home/End move rows like the primary cell does.
+ * goes back to the primary cell), Up/Down move to the neighbouring row's actions (or its primary
+ * cell when it has none) and Home/End move to the first/last row's primary cell.
  */
 import type { ComponentChildren } from "preact";
 import { t } from "@/i18n";
@@ -39,6 +40,13 @@ export function ActionsCell(p: { item: RovingItem; class?: string; children: Com
       if (i > 0) list[i - 1]?.focus();
       else cell.parentElement?.querySelector<HTMLElement>(':scope > [role="gridcell"]')?.focus();
     } else if (!p.item.nav(e.key)) return;
+    else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      // APG: vertical arrows keep the column: land on the new row's actions when it has any.
+      const row = document.activeElement?.closest('[role="row"]');
+      const next = row?.querySelector(`:scope > ${ACTIONS}`);
+      const first = next ? buttons(next)[0] : undefined;
+      first?.focus();
+    }
     e.preventDefault();
     e.stopPropagation();
   };

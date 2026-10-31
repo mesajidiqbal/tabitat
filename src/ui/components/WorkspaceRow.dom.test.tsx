@@ -52,6 +52,8 @@ function Grid({ card = false }: { card?: boolean }) {
 const rows = () => screen.getAllByRole("row");
 const primary = (i: number) =>
   rows()[i]?.querySelector<HTMLElement>(':scope > [role="gridcell"]') as HTMLElement;
+const actionsBtn = (i: number) =>
+  rows()[i]?.querySelector<HTMLElement>('[data-cell="actions"] button') as HTMLElement;
 const key = (k: string, init: KeyboardEventInit = {}) =>
   fireEvent.keyDown(document.activeElement as HTMLElement, { key: k, ...init });
 
@@ -102,13 +104,12 @@ describe("WorkspaceRow grid", () => {
     expect(document.activeElement).toBe(primary(0));
     key("ArrowRight");
     key("ArrowDown");
-    expect(document.activeElement).toBe(primary(1));
-    key("ArrowRight");
+    expect(document.activeElement).toBe(actionsBtn(1));
     key("End");
     expect(document.activeElement).toBe(primary(2));
     key("ArrowRight");
     key("ArrowUp");
-    expect(document.activeElement).toBe(primary(1));
+    expect(document.activeElement).toBe(actionsBtn(1));
   });
 
   it("Enter / Space on the primary cell switch; Enter on the menu button opens the menu only", () => {

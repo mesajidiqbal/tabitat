@@ -33,8 +33,9 @@ Workspaces and tabs (popup and side panel)
   from the side panel.
 - Toolbar badge with the active workspace.
 - Keyboard shortcuts: search, next and previous workspace (assigned by default), suspend other
-  tabs and open the side panel (unassigned). Row keys: Enter or Space, F2 rename, Delete, `p` park,
-  `z` suspend; `/`, `1` to `9`, `n` in the lists.
+  tabs and open the side panel (unassigned). Page-level keys: `/` focus search, `n` new workspace,
+  `1` to `9` switch workspace, `s` side panel, Esc. Row keys: Enter or Space, F2 rename, Delete,
+  `p` park, `z` suspend, Left and Right between cells, Shift+F10 or ContextMenu for the menu.
 - Side panel with collapsible Todos, Notes and Pomodoro sections.
 
 Dashboard (and new tab page in the New Tab flavor)

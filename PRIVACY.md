@@ -72,7 +72,6 @@ involve the network only because you ask for them:
 | `unlimitedStorage` | Lift the default storage cap for large workspaces, snapshots and backups. |
 | `sidePanel` | Show the Tabitat side panel. |
 | `alarms` | Timers that survive the service worker sleeping: session snapshots, flushing pending auto-saves, suspension checks, trash purge, backup reminder, pomodoro phases. |
-| `sessions` | Declared in the manifest. No current feature calls the `chrome.sessions` API; Tabitat's own session snapshots live in its storage and do not use it. |
 | `favicon` | Show site icons through the extension's local `_favicon` endpoint, served from the browser's own cache. |
 | `notifications` | Tell you when a pomodoro phase ends. |
 | `search` | Run the dashboard web search with your default search engine. |

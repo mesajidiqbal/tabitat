@@ -77,6 +77,16 @@ describe("TabRow keys", () => {
     expect(primary.getAttribute("aria-keyshortcuts")).toBe("Delete p z Shift+F10 ContextMenu");
   });
 
+  it("action keys ignore Caps Lock case but not Shift or modifiers", () => {
+    renderRow();
+    const primary = cell();
+    fireEvent.keyDown(primary, { key: "Z" });
+    expect(suspend).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(primary, { key: "Z", shiftKey: true });
+    fireEvent.keyDown(primary, { key: "z", ctrlKey: true });
+    expect(suspend).toHaveBeenCalledTimes(1);
+  });
+
   it("menu-only actions get no hover button", () => {
     renderRow();
     expect(screen.queryByRole("button", { name: "Never suspend this site" })).toBeNull();
@@ -191,6 +201,10 @@ function Grid({ onOpen }: { onOpen: () => void }) {
 describe("TabRow grid keys", () => {
   const primary = (i: number) =>
     screen.getAllByRole("row")[i]?.querySelector<HTMLElement>('[role="gridcell"]') as HTMLElement;
+  const firstAction = (i: number) =>
+    screen
+      .getAllByRole("row")
+      [i]?.querySelector<HTMLElement>('[data-cell="actions"] button') as HTMLElement;
   const key = (k: string) => fireEvent.keyDown(document.activeElement as HTMLElement, { key: k });
   const focusedName = () =>
     document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.textContent;
@@ -250,14 +264,14 @@ describe("TabRow grid keys", () => {
     key("ArrowRight");
     expect(focusedName()).toBe("Close tab");
     key("ArrowDown");
-    expect(document.activeElement).toBe(primary(1));
+    expect(focusedName()).toBe("Close tab");
+    expect(document.activeElement).toBe(firstAction(1));
     expect(primary(1).tabIndex).toBe(0);
-    key("ArrowRight");
     key("End");
     expect(document.activeElement).toBe(primary(2));
     key("ArrowRight");
     key("ArrowUp");
-    expect(document.activeElement).toBe(primary(1));
+    expect(document.activeElement).toBe(firstAction(1));
     key("ArrowRight");
     key("Home");
     expect(document.activeElement).toBe(primary(0));

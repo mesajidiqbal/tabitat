@@ -41,6 +41,7 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
   const { meta } = p;
   const [renaming, setRenaming] = useState(false);
   const menuBtn = useRef<HTMLButtonElement | null>(null);
+  const cell = useRef<HTMLDivElement | null>(null);
   const unsorted = meta.kind === "unsorted";
   const name = !unsorted ? meta.name : p.active ? t("unsorted") : t("unsortedOther");
   const update = (patch: { name?: string; color?: WorkspaceMeta["color"] }) =>
@@ -96,7 +97,10 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
         class={s.cell}
         aria-keyshortcuts={keys.join(" ")}
         tabIndex={p.item.tabIndex}
-        ref={p.item.ref}
+        ref={(el) => {
+          cell.current = el;
+          p.item.ref(el);
+        }}
         onFocus={p.item.onFocus}
         onKeyDown={onKeyDown}
       >
@@ -138,6 +142,7 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
           triggerClass={c.iconBtn}
           triggerRef={menuBtn}
           tabIndex={-1}
+          returnFocus={() => cell.current?.focus()}
           items={[
             {
               label: t("openInNewWindow"),

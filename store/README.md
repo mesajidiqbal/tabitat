@@ -62,7 +62,8 @@ composing a 1280×800 image, and are not accepted unmodified.
 ## Single purpose
 
 > Tabitat organizes the browser's tabs into workspaces that can be saved, switched and searched,
-> with a side panel and dashboard for working with those workspaces.
+> with a side panel and dashboard for working with those workspaces. Todos, notes and the
+> pomodoro timer are workspace-scoped focus tools shown in those same surfaces.
 
 ## Permission justifications
 

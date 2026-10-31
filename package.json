@@ -1,7 +1,7 @@
 {
   "name": "tabitat",
   "private": true,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Workspaces for your tabs. Local-only, no network.",
   "type": "module",
   "license": "MIT",

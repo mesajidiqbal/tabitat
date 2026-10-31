@@ -49,7 +49,10 @@ export function TabRow(p: TabRowProps) {
     if (e.target === e.currentTarget && !p.disabled) {
       const k = e.key;
       const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
-      const keyed = plain && !e.shiftKey ? actions.find((a) => a.key === k) : undefined;
+      const keyed =
+        plain && !e.shiftKey && k.length === 1
+          ? actions.find((a) => a.key && a.key.toLowerCase() === k.toLowerCase())
+          : undefined;
       if (k === "Enter" || k === " ") p.onOpen();
       else if (del && k === "Delete") del.run();
       else if (keyed) keyed.run();

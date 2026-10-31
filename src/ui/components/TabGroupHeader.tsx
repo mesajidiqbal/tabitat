@@ -26,7 +26,7 @@ export function TabGroupHeader(p: {
     // biome-ignore lint/a11y/useFocusableInteractive: the toggle button inside holds the focus
     <div role="row" aria-rowindex={p.rowIndex}>
       {/* biome-ignore lint/a11y/useFocusableInteractive: the toggle button inside holds the focus */}
-      <div role="gridcell">
+      <div role="gridcell" aria-colspan={2}>
         <button
           type="button"
           id={p.id}
