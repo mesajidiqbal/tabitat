@@ -1,0 +1,115 @@
+{
+  "openWorkspace": "launch",
+  "workspaces": [
+    {
+      "id": "launch",
+      "name": "Product launch",
+      "color": "blue",
+      "emoji": "🚀",
+      "tabs": [
+        {
+          "url": "https://docs.example.com/launch/plan",
+          "title": "Launch plan · Q4 — Docs",
+          "group": { "id": "g-plan", "title": "Plan", "color": "blue" }
+        },
+        {
+          "url": "https://docs.example.com/launch/press-kit",
+          "title": "Press kit (draft) — Docs",
+          "group": { "id": "g-plan", "title": "Plan", "color": "blue" }
+        },
+        {
+          "url": "https://tracker.example.com/board/launch?view=week",
+          "title": "Launch board · This week — Tracker"
+        },
+        {
+          "url": "https://analytics.example.com/dashboards/signups",
+          "title": "Sign-ups by channel — Analytics"
+        },
+        {
+          "url": "https://mail.example.com/inbox",
+          "title": "Inbox (12) — Mail"
+        },
+        {
+          "url": "https://calendar.example.com/week",
+          "title": "Calendar — Week of Nov 3"
+        }
+      ],
+      "links": [
+        { "url": "https://brand.example.com/guidelines", "title": "Brand guidelines" },
+        { "url": "https://docs.example.com/launch/faq", "title": "Launch FAQ" }
+      ]
+    },
+    {
+      "id": "research",
+      "name": "Espresso research",
+      "color": "orange",
+      "emoji": "☕",
+      "tabs": [
+        {
+          "url": "https://coffee.example.org/guides/dialing-in-espresso",
+          "title": "Dialing in espresso: a practical guide"
+        },
+        {
+          "url": "https://reviews.example.net/grinders/2026",
+          "title": "The best burr grinders of 2026"
+        },
+        {
+          "url": "https://forum.example.org/t/pre-infusion-or-not",
+          "title": "Pre-infusion or not? · Home Barista Forum"
+        },
+        {
+          "url": "https://video.example.com/watch/latte-art-basics",
+          "title": "Latte art basics in 10 minutes"
+        }
+      ],
+      "links": [
+        { "url": "https://shop.example.com/beans/ethiopia", "title": "Ethiopia Guji, light roast" }
+      ]
+    },
+    {
+      "id": "trip",
+      "name": "Lisbon trip",
+      "color": "green",
+      "emoji": "✈️",
+      "tabs": [
+        {
+          "url": "https://travel.example.com/lisbon/neighborhoods",
+          "title": "Where to stay in Lisbon: neighborhoods compared"
+        },
+        {
+          "url": "https://maps.example.com/lists/lisbon-food",
+          "title": "Lisbon food list — Maps"
+        },
+        {
+          "url": "https://trains.example.com/lisbon-sintra",
+          "title": "Lisbon → Sintra timetable"
+        }
+      ],
+      "links": []
+    }
+  ],
+  "quicklinks": [
+    { "url": "https://mail.example.com/", "title": "Mail" },
+    { "url": "https://calendar.example.com/", "title": "Calendar" },
+    { "url": "https://docs.example.com/", "title": "Docs" },
+    { "url": "https://tracker.example.com/", "title": "Tracker" },
+    { "url": "https://news.example.org/", "title": "News" },
+    { "url": "https://music.example.com/", "title": "Music" }
+  ],
+  "todos": {
+    "global": [
+      { "text": "Renew the domain before Friday", "done": false },
+      { "text": "Book the dentist", "done": false },
+      { "text": "Back up the laptop", "done": true }
+    ],
+    "launch": [
+      { "text": "Final review of the press kit", "done": false },
+      { "text": "Schedule the announcement post", "done": false },
+      { "text": "Brief the support team", "done": true }
+    ]
+  },
+  "notes": {
+    "global": "## This week\n\n- **Mon**: launch dry run\n- **Wed**: design review\n- Ship the *release notes* by Thursday\n\nIdeas: `tabitat` workspaces per customer project.",
+    "launch": "## Launch checklist\n\n1. Freeze the copy\n2. Check the sign-up flow on mobile\n3. Prepare the FAQ"
+  }
+}

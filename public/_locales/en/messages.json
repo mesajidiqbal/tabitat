@@ -287,6 +287,9 @@
       }
     }
   },
+  "rowActionsCell": {
+    "message": "Actions"
+  },
   "pinned": {
     "message": "Pinned"
   },
@@ -1590,9 +1593,6 @@
       }
     }
   },
-  "dashTodoDone": {
-    "message": "done"
-  },
   "dashTodoClearDone": {
     "message": "Clear done"
   },
@@ -1808,5 +1808,103 @@
   },
   "dashCardsOrder": {
     "message": "Cards (in this order)"
+  },
+  "appNameNewTab": {
+    "message": "Tabitat New Tab",
+    "description": "Name of the new-tab build flavor (manifest). Keep the brand name."
+  },
+  "actionTitle": {
+    "message": "Tabitat",
+    "description": "Toolbar button tooltip (manifest action.default_title)."
+  },
+  "cmdOpenSearch": {
+    "message": "Search tabs and workspaces"
+  },
+  "cmdNextWorkspace": {
+    "message": "Switch to next workspace"
+  },
+  "cmdPrevWorkspace": {
+    "message": "Switch to previous workspace"
+  },
+  "cmdSuspendOthers": {
+    "message": "Suspend all other tabs in this window"
+  },
+  "cmdToggleSidePanel": {
+    "message": "Open the Tabitat side panel"
+  },
+  "onbTitle": {
+    "message": "Welcome to Tabitat"
+  },
+  "onbLead": {
+    "message": "Four things worth knowing before you start."
+  },
+  "onbWsTitle": {
+    "message": "Workspaces"
+  },
+  "onbWsBody": {
+    "message": "A workspace is a named set of tabs. Switching to another workspace saves the tabs you leave and opens the other workspace's tabs as lightweight placeholders that load when you visit them."
+  },
+  "onbWsLimitTitle": {
+    "message": "Good to know"
+  },
+  "onbWsLimit": {
+    "message": "A switch closes the tabs you leave, so what lives only inside a page is not kept: scroll position, text in a form you have not sent, the page's back history. Tabitat brings back each tab's address, title, pinned state and group. Pinned tabs belong to the window and are never closed by a switch."
+  },
+  "onbWhereTitle": {
+    "message": "Where things live"
+  },
+  "onbWherePopup": {
+    "message": "Toolbar button"
+  },
+  "onbWherePopupBody": {
+    "message": "Your workspaces, the tabs of this window, and search. Pin Tabitat from the puzzle-piece menu to keep it in the toolbar."
+  },
+  "onbWhereSidePanel": {
+    "message": "Side panel"
+  },
+  "onbWhereSidePanelBody": {
+    "message": "The same lists plus todos, notes and a pomodoro timer, kept open next to your pages. Open it with the side panel button in the toolbar popup, with its shortcut, or from Chrome's side panel menu."
+  },
+  "onbWhereDashboard": {
+    "message": "Dashboard"
+  },
+  "onbWhereDashboardBody": {
+    "message": "A full page with quick links, todos, notes and the workspace switcher. Open it from the popup or the side panel, and bookmark it if you like."
+  },
+  "onbWhereFlavor": {
+    "message": "Tabitat also comes as “Tabitat New Tab”, which shows the dashboard on every new tab. Install only one of the two: both would track the same tabs."
+  },
+  "onbKeysTitle": {
+    "message": "Shortcuts"
+  },
+  "onbKeysLead": {
+    "message": "Chrome owns the keyboard shortcuts: you can set or change them on its shortcuts page."
+  },
+  "onbPrivacyTitle": {
+    "message": "Privacy"
+  },
+  "onbPrivacyLocal": {
+    "message": "Everything stays in this browser profile: no account, no server, no analytics."
+  },
+  "onbPrivacyNetwork": {
+    "message": "Tabitat makes no network requests, and the browser enforces that for the extension."
+  },
+  "onbPrivacySync": {
+    "message": "Settings sync is optional and off by default. When it is on, it carries your settings only, never tabs, notes or todos."
+  },
+  "onbPrivacyBackups": {
+    "message": "Backups are plain files you download yourself and keep wherever you like."
+  },
+  "onbDone": {
+    "message": "Done"
+  },
+  "onbDoneHint": {
+    "message": "You can open this page again from Options, About."
+  },
+  "onbDoneFailed": {
+    "message": "Could not save that the tour is done. Try again in a moment."
+  },
+  "onbShowTour": {
+    "message": "Show the welcome tour"
   }
 }

@@ -1,5 +1,6 @@
 import { Keys } from "@/core/model/types";
 import { t } from "@/i18n";
+import c from "../components/controls.module.css";
 import { useStorageKey } from "../hooks/useStorageKey";
 import { REPO_URL } from "./about";
 import { Group, Section } from "./fields";
@@ -36,6 +37,17 @@ export function AboutSection() {
           </dd>
         </dl>
         <p>{t("optAboutPrivacy")}</p>
+        <div class={s.row}>
+          <button
+            type="button"
+            class={c.btn}
+            onClick={() =>
+              void chrome.tabs.create({ url: chrome.runtime.getURL("/onboarding.html") })
+            }
+          >
+            {t("onbShowTour")}
+          </button>
+        </div>
       </Group>
     </Section>
   );

@@ -95,6 +95,7 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
       title={tab.title}
       url={tab.url}
       item={roving.item(tabPos.get(tab.id) ?? -1)}
+      rowIndex={(tabPos.get(tab.id) ?? -1) + 1}
       onOpen={() => void activateTab(tab.id, tab.windowId)}
       actions={rowActions(tab, ws)}
       current={tab.active}
@@ -147,13 +148,14 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
           <WindowActions />
         </div>
       )}
-      <div role="listbox" aria-labelledby="tabs-h" class={r.list}>
+      {/* biome-ignore lint/a11y/useSemanticElements: ARIA grid of div rows (flex rows; no table elements) */}
+      <div role="grid" aria-labelledby="tabs-h" aria-rowcount={nodes.length} class={r.list}>
         {runs.map((run) =>
           run.group ? (
-            // biome-ignore lint/a11y/useSemanticElements: ARIA group inside a listbox (no fieldset there)
+            // biome-ignore lint/a11y/useSemanticElements: ARIA rowgroup of a div grid (no table)
             <div
               key={`g${run.groupId}`}
-              role="group"
+              role="rowgroup"
               aria-labelledby={`grp-${run.groupId}`}
               class={r.group}
               style={{ "--dot": colorVar(run.group.color) }}
@@ -164,6 +166,7 @@ export function TabsSection(p: { variant: "popup" | "panel" }) {
                 count={run.tabs.length}
                 collapsed={collapsed[run.groupId] === true}
                 item={roving.item(headerPos.get(run.groupId) ?? -1)}
+                rowIndex={(headerPos.get(run.groupId) ?? -1) + 1}
                 onToggle={() =>
                   setCollapsed({ ...collapsed, [run.groupId]: !collapsed[run.groupId] })
                 }

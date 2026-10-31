@@ -1,3 +1,7 @@
+# Tag-driven release (docs/RELEASE.md). Pushing a tag like v1.0.0 verifies the tree, builds both
+# flavors, names the zips tabitat-<version>.zip and tabitat-newtab-<version>.zip, and creates a
+# GitHub release whose body is the matching section of CHANGELOG.md. There is no Chrome Web Store
+# upload here; that stays a manual step (store/README.md).
 name: Release
 on:
   push:
@@ -15,11 +19,63 @@ jobs:
         with:
           node-version: 24
           cache: npm
+
+      - name: Check the tag matches package.json
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$VERSION" != "$PKG" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - run: npm run build:newtab
+      - run: npm run budgets
       - run: npm run zip
       - run: npm run zip:newtab
+
+      # `wxt zip` writes .output/tabitat-<version>-chrome.zip and
+      # .output-newtab/tabitat-<version>-chrome.zip: same name, different folders. Rename them.
+      - name: Name the zips
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          cp ".output/tabitat-${VERSION}-chrome.zip" "release-assets/tabitat-${VERSION}.zip"
+          cp ".output-newtab/tabitat-${VERSION}-chrome.zip" "release-assets/tabitat-newtab-${VERSION}.zip"
+          ls -l release-assets
+
+      # Body = the "## [<version>]" section of CHANGELOG.md, up to the next "## [" heading or the
+      # link definitions at the bottom of the file. Fails when the section is missing or empty.
+      - name: Extract release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v v="$VERSION" '
+            /^## \[/ { if (on) exit; on = (index($0, "## [" v "]") == 1); next }
+            /^\[[^]]+\]: / { if (on) exit }
+            on { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md has no non-empty section for version $VERSION"
+            exit 1
+          fi
+          cat release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
+          name: Tabitat ${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true
           files: |
-            .output/*.zip
-            .output-newtab/*.zip
+            release-assets/tabitat-${{ steps.version.outputs.version }}.zip
+            release-assets/tabitat-newtab-${{ steps.version.outputs.version }}.zip

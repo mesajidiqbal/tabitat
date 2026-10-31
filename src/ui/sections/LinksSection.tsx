@@ -145,13 +145,15 @@ export function LinksSection(p: { variant: "popup" | "panel" }) {
       {adding && <LinkForm key={meta.id} workspaceId={meta.id} onClose={() => setAdding(false)} />}
       {links.length === 0 && !adding && !over && <p class={s.more}>{t("noLinksHint")}</p>}
       {links.length > 0 && (
-        <div role="listbox" aria-labelledby="links-h" class={r.list}>
+        // biome-ignore lint/a11y/useSemanticElements: ARIA grid of div rows (flex rows / cards; no table elements)
+        <div role="grid" aria-labelledby="links-h" aria-rowcount={links.length} class={r.list}>
           {links.map((l, i) => (
             <TabRow
               key={l.id}
               title={l.title}
               url={l.url}
               item={roving.item(i)}
+              rowIndex={i + 1}
               showHost={p.variant === "panel"}
               onOpen={() => void openUrl(l.url)}
               actions={[

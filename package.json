@@ -19,11 +19,14 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "spike": "playwright test --project=spike",
-    "check": "npm run lint && npm run typecheck && npm test",
+    "check": "npm run lint && npm run i18n && npm run typecheck && npm test",
+    "i18n": "node scripts/check-i18n.mjs",
+    "assets": "node scripts/store-assets.ts",
     "budgets": "node scripts/check-budgets.mjs && node scripts/check-budgets.mjs --dir .output-newtab/chrome-mv3",
     "postinstall": "wxt prepare"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@biomejs/biome": "^2.6.4",
     "@playwright/test": "^1.64.1",
     "@preact/preset-vite": "^2.10.6",

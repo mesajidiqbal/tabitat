@@ -34,8 +34,8 @@ export function WorkspacesWidget({ compact }: WidgetProps) {
   /** Middle-click on a card: open that workspace in a new window. */
   const onAux = (e: MouseEvent) => {
     if (e.button !== 1 || busy.peek()) return;
-    const opt = (e.target as HTMLElement).closest('[role="option"]');
-    const all = [...(e.currentTarget as HTMLElement).querySelectorAll('[role="option"]')];
+    const opt = (e.target as HTMLElement).closest('[role="row"]');
+    const all = [...(e.currentTarget as HTMLElement).querySelectorAll('[role="row"]')];
     const meta = opt ? list[all.indexOf(opt)] : undefined;
     if (!meta) return;
     e.preventDefault();
@@ -61,10 +61,12 @@ export function WorkspacesWidget({ compact }: WidgetProps) {
           <EmptyState title={t("noWorkspacesTitle")} hint={t("noWorkspacesHint")} />
         )
       ) : (
+        // biome-ignore lint/a11y/useSemanticElements: ARIA grid of div rows (flex rows / cards; no table elements)
         <div
           id={DASH_WS_LIST_ID}
-          role="listbox"
+          role="grid"
           aria-label={t("workspaces")}
+          aria-rowcount={list.length}
           class={`${r.cards} ${s.wsGrid}`}
           onMouseDown={(e) => e.button === 1 && e.preventDefault()}
           onAuxClick={onAux}
@@ -74,6 +76,7 @@ export function WorkspacesWidget({ compact }: WidgetProps) {
               key={m.id}
               meta={m}
               item={roving.item(i)}
+              rowIndex={i + 1}
               active={m.id === active}
               elsewhere={own[m.id] !== undefined && own[m.id] !== w}
               tabCount={m.id === active ? liveCount : (tabs[m.id]?.tabs.length ?? 0)}

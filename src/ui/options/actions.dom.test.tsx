@@ -32,6 +32,33 @@ describe("ConfirmAction (DOM)", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it("traps focus: Tab and Shift+Tab cycle between Confirm and Cancel", async () => {
+    renderConfirm();
+    screen.getByRole("button", { name: "Empty trash" }).click();
+    await waitFor(() => expect(document.activeElement?.textContent).toBe("Confirm"));
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const tab = (shiftKey = false) => {
+      const ev = new KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+      (document.activeElement as HTMLElement).dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    expect(tab()).toBe(true);
+    expect(document.activeElement).toBe(cancel);
+    expect(tab()).toBe(true);
+    expect(document.activeElement).toBe(confirm);
+    expect(tab(true)).toBe(true);
+    expect(document.activeElement).toBe(cancel);
+    expect(tab(true)).toBe(true);
+    expect(document.activeElement).toBe(confirm);
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+  });
+
   it("Cancel refocuses the trigger", async () => {
     renderConfirm();
     screen.getByRole("button", { name: "Empty trash" }).click();

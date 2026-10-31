@@ -1,3 +1,4 @@
+import { openOnboardingIfNew } from "@/background/onboarding";
 import { createServices } from "@/background/services";
 import { attachRpcServer } from "@/messaging/server";
 import { detectDirectSchemes } from "@/platform/brand";
@@ -19,6 +20,10 @@ export default defineBackground({
     });
     chrome.runtime.onInstalled.addListener((details) => {
       console.log("[tabitat] installed", details.reason);
+      // First install only (never on update/reload): the welcome tour, once init resolved.
+      void openOnboardingIfNew(services, details.reason, (path) =>
+        chrome.tabs.create({ url: chrome.runtime.getURL(path) }),
+      ).catch((e) => console.error("[tabitat] opening the welcome tour failed", e));
     });
     void services.init().catch((e) => console.error("[tabitat] init failed", e));
   },

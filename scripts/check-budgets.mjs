@@ -22,6 +22,7 @@ export const DEFAULT_BUDGETS = {
     options: 60 * KB,
     recovery: 40 * KB,
     suspended: 10 * KB,
+    onboarding: 15 * KB,
     background: 60 * KB,
   },
   totalJs: 200 * KB,
@@ -35,6 +36,7 @@ export const SURFACES = [
   { name: "options", entry: "options.html" },
   { name: "recovery", entry: "recovery.html" },
   { name: "suspended", entry: "suspended.html" },
+  { name: "onboarding", entry: "onboarding.html" },
   { name: "background", entry: "background.js" },
 ];
 

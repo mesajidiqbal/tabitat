@@ -18,7 +18,8 @@ test.afterAll(async () => {
 test("popup renders", async () => {
   const page = await ext.context.newPage();
   await page.goto(`chrome-extension://${ext.extensionId}/popup.html`);
-  await expect(page.getByText("Tabitat")).toBeVisible();
+  // The footer brand (the page also has an sr-only "Tabitat" h1).
+  await expect(page.getByRole("contentinfo").getByText("Tabitat")).toBeVisible();
 });
 
 // Playwright force-enables visibility emulation on every page in its context (even tabs created

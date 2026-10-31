@@ -6,7 +6,8 @@ import s from "./options.module.css";
 
 /**
  * Inline two-step confirmation for a destructive action (no `confirm()` dialog). Opening it moves
- * focus to the confirm button; Escape cancels; focus returns to the trigger afterwards.
+ * focus to the confirm button; Tab / Shift+Tab cycle inside it (focus trap); Escape cancels;
+ * focus returns to the trigger afterwards.
  */
 export function ConfirmAction(p: {
   label: string;
@@ -50,6 +51,14 @@ export function ConfirmAction(p: {
       aria-label={p.label}
       aria-describedby={promptId}
       onKeyDown={(e) => {
+        if (e.key === "Tab") {
+          const list = [...e.currentTarget.querySelectorAll<HTMLElement>("button")];
+          const i = list.indexOf(document.activeElement as HTMLElement);
+          const next = list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length];
+          e.preventDefault();
+          next?.focus();
+          return;
+        }
         if (e.key !== "Escape") return;
         e.preventDefault();
         e.stopPropagation();

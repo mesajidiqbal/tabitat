@@ -51,9 +51,10 @@
 }
 /*
  * Scrim behind the top row over an image or colour wallpaper (Gemini review): a blurred, nearly
- * opaque surface from the theme tokens keeps muted text >= 4.5:1 whatever the picture (90 % of
- * --bg-elev over pure black / white still clears 4.5:1 for --fg-muted in both themes). Solid
- * where backdrop-filter is not supported.
+ * opaque surface from the theme tokens keeps text >= 4.5:1 whatever the picture (94 % of
+ * --bg-elev over pure black / white still clears 4.5:1 for --fg-muted, --fg-subtle and --accent
+ * in both themes; the worst case, dark --fg-subtle over white, is 4.77). Solid where
+ * backdrop-filter is not supported.
  */
 .scrim {
   padding: var(--sp-3);
@@ -62,7 +63,7 @@
 }
 @supports (backdrop-filter: blur(1px)) {
   .scrim {
-    background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+    background: color-mix(in srgb, var(--bg-elev) 94%, transparent);
     backdrop-filter: blur(14px) saturate(1.2);
   }
 }
@@ -166,9 +167,14 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+/* Pressed = a ring drawn with box-shadow, so the focus outline stays distinguishable around it. */
 .swatch[aria-pressed="true"] {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  box-shadow:
+    0 0 0 2px var(--bg-elev),
+    0 0 0 4px var(--accent);
+}
+.swatch:focus-visible {
+  outline-offset: 5px;
 }
 .fileBtn {
   position: relative;

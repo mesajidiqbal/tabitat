@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PomodoroState, Trash, WorkspaceMeta } from "../core/model/types";
+import type { Meta, PomodoroState, Trash, WorkspaceMeta } from "../core/model/types";
 import { Keys } from "../core/model/types";
 import type { CommandType } from "../messaging/commands";
 import { PayloadSchemas } from "../messaging/schemas";
@@ -424,5 +424,26 @@ describe("recovery screen commands", () => {
       expect(await h.rpc("system.purgeCorrupt", { keys })).toMatchObject({ code: "invalid" });
     }
     expect(stored(h.fake, Keys.wsMeta("A"))).toBeDefined();
+  });
+});
+
+describe("system.onboarded", () => {
+  it("stamps meta.onboardedAt and keeps the other meta fields", async () => {
+    const h = await setup();
+    const before = stored<Meta>(h.fake, Keys.meta);
+    expect(before?.onboardedAt).toBeUndefined();
+    expect(await h.ok("system.onboarded", {})).toBeNull();
+    const after = stored<Meta>(h.fake, Keys.meta);
+    expect(after).toEqual({ ...before, onboardedAt: h.fake.clock });
+    h.fake.clock += 5_000;
+    await h.ok("system.onboarded", {});
+    expect(stored<Meta>(h.fake, Keys.meta)?.onboardedAt).toBe(h.fake.clock);
+  });
+
+  it("tolerates a missing meta (nothing is written)", async () => {
+    const h = await setup();
+    h.fake.local.delete(Keys.meta);
+    expect(await h.ok("system.onboarded", {})).toBeNull();
+    expect(stored(h.fake, Keys.meta)).toBeUndefined();
   });
 });

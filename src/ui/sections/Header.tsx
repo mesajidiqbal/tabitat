@@ -14,6 +14,7 @@ export function Header(p: { variant: "popup" | "panel"; onSearch: () => void }) 
   const popup = p.variant === "popup";
   return (
     <header class={s.header}>
+      <h1 class="sr-only">{t("appName")}</h1>
       <Menu
         label={t("currentWorkspaceMenu", name)}
         trigger={

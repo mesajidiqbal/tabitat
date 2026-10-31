@@ -33,16 +33,16 @@
   --fg-subtle: #5f6672; /* ≥ 4.5:1 on --bg, --bg-sunken and --bg-hover */
   --border: #e3e5e9;
   --border-strong: #c9cdd4;
-  --accent: #2f6fde;
-  --accent-hover: #255cc0;
+  --accent: #2560c8; /* ≥ 4.5:1 as text on every light background token */
+  --accent-hover: #1d4fa8;
   --accent-fg: #ffffff;
   --accent-soft: #e6eefc;
   --danger: #c5221f;
   --danger-soft: #fce8e6;
   --warn-fg: #7a4b00;
   --warn-bg: #fff4d6;
-  --ok: #1e7e34;
-  --focus: #2f6fde;
+  --ok: #1a722f;
+  --focus: #2560c8; /* ≥ 3:1 against every background token */
   --mark-bg: #ffe58a;
   --mark-fg: inherit;
   --shadow: 0 4px 16px rgb(0 0 0 / 0.12), 0 1px 3px rgb(0 0 0 / 0.08);

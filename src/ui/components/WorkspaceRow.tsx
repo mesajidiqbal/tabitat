@@ -1,6 +1,9 @@
+// biome-ignore-all lint/a11y/useSemanticElements: ARIA grid of div rows (flex rows and card layouts; no table elements)
 /**
- * Workspace option (popup row / side-panel card). Click or Enter switches; "…" menu (also
- * Shift+F10 / ContextMenu) opens in a new window, renames (F2), recolours, deletes (Delete).
+ * Workspace grid row (popup row / side-panel and dashboard card): a primary cell (holds the
+ * roving tabindex) and an actions cell with the "…" menu. Click or Enter / Space switches; the
+ * menu (also Shift+F10 / ContextMenu) opens in a new window, renames (F2), recolours, deletes
+ * (Delete). ArrowRight moves to the menu button, ArrowLeft back.
  */
 import { useRef, useState } from "preact/hooks";
 import type { WorkspaceMeta } from "@/core/model/types";
@@ -14,6 +17,7 @@ import { store } from "../store";
 import { colorVar } from "../theme";
 import { ColorSwatches } from "./ColorSwatches";
 import c from "./controls.module.css";
+import { ActionsCell, focusActions } from "./GridCells";
 import { Kbd } from "./Kbd";
 import { Menu } from "./Menu";
 import s from "./rows.module.css";
@@ -21,6 +25,8 @@ import s from "./rows.module.css";
 export interface WorkspaceRowProps {
   meta: WorkspaceMeta;
   item: RovingItem;
+  /** 1-based position in the grid (aria-rowindex). */
+  rowIndex?: number;
   tabCount: number;
   savedAt?: number | undefined;
   active: boolean;
@@ -53,6 +59,8 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
       } else if (k === "Delete") {
         if (deletable && !p.disabled) void deleteWorkspace(meta.id, name);
       } else if (k === "ContextMenu" || (k === "F10" && e.shiftKey)) menuBtn.current?.click();
+      else if (k === "ArrowRight" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey)
+        focusActions(e.currentTarget as HTMLElement);
       else return p.item.onKeyDown(e);
       e.preventDefault();
       return;
@@ -65,92 +73,108 @@ export function WorkspaceRow(p: WorkspaceRowProps) {
   const details = [preview ? unsortedDetail(store.wsTabs.value[meta.id]?.tabs, count) : count];
   if (p.savedAt) details.push(relTime(p.savedAt));
   if (p.elsewhere && p.card) details.push(t("openElsewhere"));
+  const keys = [
+    ...(p.shortcut ? [String(p.shortcut)] : []),
+    "F2",
+    ...(deletable ? ["Delete"] : []),
+    "Shift+F10",
+    "ContextMenu",
+  ];
   return (
+    // biome-ignore lint/a11y/useFocusableInteractive lint/a11y/useKeyWithClickEvents: focus and keys live on the primary cell; the row click is the pointer shortcut
     <div
-      role="option"
+      role="row"
+      aria-rowindex={p.rowIndex}
       aria-selected={p.active}
       aria-disabled={p.disabled ? "true" : undefined}
-      aria-keyshortcuts={p.shortcut ? String(p.shortcut) : undefined}
       class={[s.row, p.card && s.card, p.active && !p.card && s.current].filter(Boolean).join(" ")}
       style={{ "--dot": colorVar(meta.color) }}
-      tabIndex={p.item.tabIndex}
-      ref={p.item.ref}
-      onFocus={p.item.onFocus}
-      onKeyDown={onKeyDown}
       onClick={open}
     >
-      <span class={`${s.dot} ${p.active ? s.dotOn : ""}`} />
-      <span class={s.text}>
-        {renaming ? (
-          <input
-            class={c.input}
-            aria-label={t("rename")}
-            // biome-ignore lint/a11y/noAutofocus: rename was just requested
-            autoFocus
-            defaultValue={unsorted ? "" : meta.name}
-            maxLength={200}
-            onClick={(e) => e.stopPropagation()}
-            onBlur={() => setRenaming(false)}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              const v = e.currentTarget.value.trim();
-              if (e.key === "Enter" && v) void update({ name: v }).then(() => setRenaming(false));
-              if (e.key === "Escape") setRenaming(false);
-            }}
-          />
-        ) : (
-          <span class={`${s.title} ${p.active ? s.strong : ""}`}>
-            {name}
-            {p.active && <span class="sr-only"> ({t("activeHere")})</span>}
-          </span>
-        )}
-        {p.card && <span class={s.sub}>{details.join(" · ")}</span>}
-      </span>
-      {p.elsewhere && !p.card && <span class={s.tag}>{t("openElsewhere")}</span>}
-      {!p.card && <span class={s.meta}>{details.join(" · ")}</span>}
-      {p.shortcut !== undefined && !p.card && <Kbd>{p.shortcut}</Kbd>}
-      <Menu
-        label={t("workspaceActions", name)}
-        trigger={<IconMore />}
-        triggerClass={c.iconBtn}
-        triggerRef={menuBtn}
-        tabIndex={-1}
-        items={[
-          {
-            label: t("openInNewWindow"),
-            disabled: p.disabled,
-            onSelect: () => void attempt(() => send("workspace.open", { workspaceId: meta.id })),
-          },
-          {
-            label: unsorted ? t("nameWorkspace") : t("rename"),
-            hint: <Kbd>F2</Kbd>,
-            disabled: p.disabled,
-            onSelect: () => setRenaming(true),
-          },
-          ...(deletable
-            ? [
-                {
-                  label: t("delete"),
-                  danger: true,
-                  hint: <Kbd>Del</Kbd>,
-                  disabled: p.disabled,
-                  onSelect: () => void deleteWorkspace(meta.id, name),
-                },
-              ]
-            : []),
-        ]}
-        extra={(close) => (
-          <ColorSwatches
-            inMenu
-            disabled={p.disabled}
-            value={meta.color}
-            onChange={(color) => {
-              close();
-              void update({ color });
-            }}
-          />
-        )}
-      />
+      <div
+        role="gridcell"
+        class={s.cell}
+        aria-keyshortcuts={keys.join(" ")}
+        tabIndex={p.item.tabIndex}
+        ref={p.item.ref}
+        onFocus={p.item.onFocus}
+        onKeyDown={onKeyDown}
+      >
+        <span class={`${s.dot} ${p.active ? s.dotOn : ""}`} />
+        <span class={s.text}>
+          {renaming ? (
+            <input
+              class={c.input}
+              aria-label={t("rename")}
+              // biome-ignore lint/a11y/noAutofocus: rename was just requested
+              autoFocus
+              defaultValue={unsorted ? "" : meta.name}
+              maxLength={200}
+              onClick={(e) => e.stopPropagation()}
+              onBlur={() => setRenaming(false)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                const v = e.currentTarget.value.trim();
+                if (e.key === "Enter" && v) void update({ name: v }).then(() => setRenaming(false));
+                if (e.key === "Escape") setRenaming(false);
+              }}
+            />
+          ) : (
+            <span class={`${s.title} ${p.active ? s.strong : ""}`}>
+              {name}
+              {p.active && <span class="sr-only"> ({t("activeHere")})</span>}
+            </span>
+          )}
+          {p.card && <span class={s.sub}>{details.join(" · ")}</span>}
+        </span>
+        {p.elsewhere && !p.card && <span class={s.tag}>{t("openElsewhere")}</span>}
+        {!p.card && <span class={s.meta}>{details.join(" · ")}</span>}
+        {p.shortcut !== undefined && !p.card && <Kbd>{p.shortcut}</Kbd>}
+      </div>
+      <ActionsCell item={p.item}>
+        <Menu
+          label={t("workspaceActions", name)}
+          trigger={<IconMore />}
+          triggerClass={c.iconBtn}
+          triggerRef={menuBtn}
+          tabIndex={-1}
+          items={[
+            {
+              label: t("openInNewWindow"),
+              disabled: p.disabled,
+              onSelect: () => void attempt(() => send("workspace.open", { workspaceId: meta.id })),
+            },
+            {
+              label: unsorted ? t("nameWorkspace") : t("rename"),
+              hint: <Kbd>F2</Kbd>,
+              disabled: p.disabled,
+              onSelect: () => setRenaming(true),
+            },
+            ...(deletable
+              ? [
+                  {
+                    label: t("delete"),
+                    danger: true,
+                    hint: <Kbd>Del</Kbd>,
+                    disabled: p.disabled,
+                    onSelect: () => void deleteWorkspace(meta.id, name),
+                  },
+                ]
+              : []),
+          ]}
+          extra={(close) => (
+            <ColorSwatches
+              inMenu
+              disabled={p.disabled}
+              value={meta.color}
+              onChange={(color) => {
+                close();
+                void update({ color });
+              }}
+            />
+          )}
+        />
+      </ActionsCell>
     </div>
   );
 }

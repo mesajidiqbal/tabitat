@@ -1,5 +1,6 @@
 import preact from "@preact/preset-vite";
 import { defineConfig } from "wxt";
+import { REPO_URL } from "./src/ui/options/about";
 
 const isNewTab = process.env.TABITAT_FLAVOR === "newtab";
 
@@ -21,9 +22,18 @@ export default defineConfig({
     // keep it for the dev server, compile it out of production builds.
     define: { __TABITAT_I18N_FALLBACK__: JSON.stringify(command === "serve") },
   }),
+  hooks: {
+    // WXT copies the popup's <title> into action.default_title, overriding the value below;
+    // the toolbar tooltip must be the localized message instead.
+    "build:manifestGenerated": (_wxt, manifest) => {
+      if (manifest.action) manifest.action.default_title = "__MSG_actionTitle__";
+    },
+  },
   manifest: ({ command }) => ({
-    name: isNewTab ? "Tabitat New Tab" : "Tabitat",
-    description: "Workspaces for your tabs. Local-only, no network.",
+    // Listing strings come from public/_locales/<lang>/messages.json (docs/I18N.md).
+    name: isNewTab ? "__MSG_appNameNewTab__" : "__MSG_appName__",
+    description: "__MSG_appDescription__",
+    homepage_url: REPO_URL,
     minimum_chrome_version: "121",
     default_locale: "en",
     permissions: [
@@ -33,32 +43,31 @@ export default defineConfig({
       "unlimitedStorage",
       "sidePanel",
       "alarms",
-      "sessions",
       "favicon",
       "notifications",
       "search",
     ],
     optional_permissions: ["bookmarks"],
     incognito: "not_allowed",
-    action: { default_title: "Tabitat" },
+    action: { default_title: "__MSG_actionTitle__" },
     side_panel: { default_path: "sidepanel.html" },
     options_ui: { page: "options.html", open_in_tab: true },
     ...(isNewTab ? { chrome_url_overrides: { newtab: "dashboard.html" } } : {}),
     commands: {
       "open-search": {
-        description: "Search tabs and workspaces",
+        description: "__MSG_cmdOpenSearch__",
         suggested_key: { default: "Ctrl+Shift+K", mac: "Command+Shift+K" },
       },
       "next-workspace": {
-        description: "Switch to next workspace",
+        description: "__MSG_cmdNextWorkspace__",
         suggested_key: { default: "Ctrl+Shift+Period", mac: "Command+Shift+Period" },
       },
       "prev-workspace": {
-        description: "Switch to previous workspace",
+        description: "__MSG_cmdPrevWorkspace__",
         suggested_key: { default: "Ctrl+Shift+Comma", mac: "Command+Shift+Comma" },
       },
-      "suspend-other-tabs": { description: "Suspend all other tabs in this window" },
-      "toggle-side-panel": { description: "Open the Tabitat side panel" },
+      "suspend-other-tabs": { description: "__MSG_cmdSuspendOthers__" },
+      "toggle-side-panel": { description: "__MSG_cmdToggleSidePanel__" },
     },
     content_security_policy: {
       extension_pages: command === "serve" ? DEV_CSP : PROD_CSP,

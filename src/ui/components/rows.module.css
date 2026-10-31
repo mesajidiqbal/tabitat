@@ -20,8 +20,26 @@
 .row.hl {
   background: var(--bg-hover);
 }
-.row:focus-visible {
+/* Grid row: the primary cell takes the roving focus; the ring is drawn around the whole row. */
+.cell {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.cell:focus-visible {
+  outline: none;
+}
+.row:has(> .cell:focus-visible) {
+  outline: 2px solid var(--focus);
   outline-offset: -2px;
+}
+.actionsCell {
+  display: flex;
+  flex: none;
+  align-items: center;
 }
 .row[aria-disabled="true"] {
   cursor: progress;
@@ -131,6 +149,9 @@
   border: 1px solid var(--border);
   border-top: 3px solid var(--dot);
   border-radius: var(--radius);
+}
+.card > .cell {
+  align-items: flex-start;
 }
 .card .dot {
   margin-top: 4px;

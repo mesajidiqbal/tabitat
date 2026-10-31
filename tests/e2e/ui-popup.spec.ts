@@ -45,7 +45,7 @@ const windowUrls = (windowId: number) =>
   }, windowId);
 
 const workspaceOption = (name: string) =>
-  page.locator("#ws-list [role=option]").filter({ hasText: name });
+  page.locator("#ws-list [role=row]").filter({ hasText: name });
 
 test.beforeAll(async () => {
   ext = await launchExtension();
@@ -147,7 +147,7 @@ test("(c) clicking another workspace switches the window to its placeholders", a
   console.log(
     `[ui-popup] after switch: ${tabs.filter((t) => t.placeholder).length}/${tabs.length} still placeholders`,
   );
-  await expect(page.locator("[aria-labelledby=tabs-h][role=listbox] [role=option]")).toHaveCount(3);
+  await expect(page.locator("[aria-labelledby=tabs-h][role=grid] [role=row]")).toHaveCount(3);
   await expect(workspaceOption("Gamma")).toContainText("2 tabs");
 });
 
@@ -188,7 +188,7 @@ test("(e) recovery page lists session generations; quarantine delete works", asy
   await rec.close();
 });
 
-const tabRows = () => page.locator("[aria-labelledby=tabs-h][role=listbox] [role=option]");
+const tabRows = () => page.locator("[aria-labelledby=tabs-h][role=grid] [role=row][title]");
 const tabRow = (path: string) => tabRows().and(page.locator(`[title$="${BASE}/${path}"]`));
 
 /** The window's tab whose URL is `url` (tab ids can change when Chrome discards a tab). */
@@ -211,9 +211,11 @@ test("(g) Suspend (z) on a background tab discards it and the row shows the glyp
   const row = tabRow("sleepy");
   await expect(row).toBeVisible();
   await expect(row.getByTestId("suspended")).toHaveCount(0);
-  // The row offers Suspend (key z) for an idle http tab -> tabs.suspend.
-  await row.focus();
-  await row.press("z");
+  // The row offers Suspend (key z) for an idle http tab -> tabs.suspend (keys go to the row's
+  // primary cell, which holds the roving focus).
+  const cell = row.getByRole("gridcell").first();
+  await cell.focus();
+  await cell.press("z");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect
     .poll(async () => (await findTab(w2, url))?.discarded, { timeout: 10_000 })
@@ -225,7 +227,9 @@ test("(g) Suspend (z) on a background tab discards it and the row shows the glyp
     .poll(() =>
       page.evaluate(() => {
         const el = document.activeElement;
-        return el?.getAttribute("role") === "option" ? (el.getAttribute("title") ?? "") : "";
+        return el?.getAttribute("role") === "gridcell"
+          ? (el.closest("[role=row]")?.getAttribute("title") ?? "")
+          : "";
       }),
     )
     .toContain("/sleepy");

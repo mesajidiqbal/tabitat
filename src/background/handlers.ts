@@ -652,6 +652,23 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
     () => [Lane.global],
   );
 
+  // A missing/unreadable meta is left alone (init rebuilds it), like recordBackup: the tour
+  // may then show again on a later install, which is harmless.
+  router.register(
+    "system.onboarded",
+    S["system.onboarded"],
+    async () => {
+      const meta = await repo.getMeta();
+      if (meta) {
+        await repo.setMany({
+          [Keys.meta]: { ...meta, onboardedAt: Math.max(1, Math.floor(ports.now())) },
+        });
+      }
+      return null;
+    },
+    () => [Lane.global],
+  );
+
   router.register(
     "system.ping",
     S["system.ping"],

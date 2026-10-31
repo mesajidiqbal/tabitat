@@ -103,6 +103,7 @@ export function App() {
     <div class={s.page} style={{ background }}>
       <div class={s.app}>
         <header class={s.bar}>
+          <h1 class="sr-only">{t("appName")}</h1>
           <button
             ref={gear}
             type="button"

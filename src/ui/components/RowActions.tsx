@@ -1,13 +1,15 @@
 /**
- * Actions of a TabRow: hover / focus-within icon buttons plus a visible "…" overflow button that
- * opens a menu of every action, including menu-only ones. The same menu opens from the keyboard
- * (ContextMenu / Shift+F10) and on right-click of the row (`useRowMenu`).
+ * Actions cell of a TabRow: hover / focus-within icon buttons plus a visible "…" overflow button
+ * that opens a menu of every action, including menu-only ones. The same menu opens from the
+ * keyboard (ContextMenu / Shift+F10) and on right-click of the row (`useRowMenu`).
  */
 import type { ComponentChildren, Ref } from "preact";
 import { useRef } from "preact/hooks";
 import { t } from "@/i18n";
+import type { RovingItem } from "../hooks/useRoving";
 import { IconMore } from "../icons";
 import c from "./controls.module.css";
+import { ActionsCell } from "./GridCells";
 import { IconButton } from "./IconButton";
 import { Kbd } from "./Kbd";
 import { Menu } from "./Menu";
@@ -61,11 +63,13 @@ export function RowActions(p: {
   disabled?: boolean | undefined;
   menuRef: Ref<HTMLButtonElement>;
   returnFocus: () => void;
+  /** The row's roving item (Up/Down/Home/End from an action move rows). */
+  item: RovingItem;
 }) {
   if (p.actions.length === 0) return null;
   const buttons = p.actions.filter((a) => !a.menuOnly);
   return (
-    <span class={s.actions}>
+    <ActionsCell item={p.item} class={s.actions}>
       {buttons.map((a) => (
         <IconButton
           key={a.label}
@@ -97,6 +101,6 @@ export function RowActions(p: {
           onSelect: a.run,
         }))}
       />
-    </span>
+    </ActionsCell>
   );
 }

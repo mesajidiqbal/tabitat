@@ -79,7 +79,7 @@ Title tooltip: "Tabitat — <workspace>".
 no external UI libs.
 
 ## Accessibility
-Roles: lists are `listbox`/`option` with roving tabindex; buttons have
+Roles (Phase 5): the workspace, tab, saved-link and recently-closed lists are `grid`/`row`/`gridcell` (primary cell + an "Actions" cell; ←/→ between cells, ↑/↓/Home/End between rows) with roving tabindex; search results stay `listbox`/`option` (combobox pattern); buttons have
 labels; focus ring visible; color is never the only signal (name text +
 dot). Respect `prefers-reduced-motion`.
 

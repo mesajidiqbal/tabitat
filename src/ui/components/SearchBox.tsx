@@ -1,4 +1,7 @@
-/** Search input as a combobox over the results listbox (aria-activedescendant). */
+/**
+ * Search input as a combobox over the results listbox (aria-activedescendant), in a search
+ * landmark.
+ */
 import type { Ref } from "preact";
 import { t } from "@/i18n";
 import { IconClose, IconSearch } from "../icons";
@@ -19,7 +22,8 @@ export interface SearchBoxProps {
 export function SearchBox(p: SearchBoxProps) {
   const open = p.value.trim() !== "";
   return (
-    <div class={s.box}>
+    // biome-ignore lint/a11y/useSemanticElements: <search> is not in Preact's JSX types yet
+    <div class={s.box} role="search">
       <span class={s.icon}>
         <IconSearch />
       </span>

@@ -1,8 +1,9 @@
 /**
- * Roving tabindex for listbox options and group headers (UI-SPEC Accessibility): one node is
- * tabbable, arrows move focus, Home/End jump. Keys pressed on inner controls are ignored. When
- * the focused node disappears (e.g. its tab closed or was replaced), focus moves to the node now
- * at its place.
+ * Roving tabindex for the rows of a grid (the primary cell of each row, or a group header's
+ * button) and for listbox options (UI-SPEC Accessibility): one node is tabbable, arrows move
+ * focus, Home/End jump. Keys pressed on inner controls are ignored; other cells of a row (the
+ * actions cell) move between rows through `nav`. When the focused node disappears (e.g. its tab
+ * closed or was replaced), focus moves to the node now at its place.
  */
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -11,6 +12,8 @@ export interface RovingItem {
   ref: (el: HTMLElement | null) => void;
   onFocus: () => void;
   onKeyDown: (e: KeyboardEvent) => void;
+  /** Runs the row navigation of `key` from this node (ArrowUp/Down, Home/End); false: not one. */
+  nav: (key: string) => boolean;
 }
 
 export interface RovingOptions {
@@ -74,6 +77,14 @@ export function useRoving(count: number, opts: RovingOptions = {}) {
     return () => clearTimeout(id);
   });
 
+  const nav = (i: number, key: string): boolean => {
+    const action = rovingAction(key, i, count, opts.onExitTop !== undefined);
+    if (action === null) return false;
+    if (action.kind === "exitTop") opts.onExitTop?.();
+    else focusAt(action.index);
+    return true;
+  };
+
   const item = (i: number): RovingItem => ({
     tabIndex: i === cur ? 0 : -1,
     ref: (el) => {
@@ -85,22 +96,24 @@ export function useRoving(count: number, opts: RovingOptions = {}) {
     },
     onKeyDown: (e) => {
       if (e.target !== e.currentTarget || e.altKey || e.ctrlKey || e.metaKey) return;
-      const action = rovingAction(e.key, i, count, opts.onExitTop !== undefined);
-      if (action === null) return;
-      if (action.kind === "exitTop") opts.onExitTop?.();
-      else focusAt(action.index);
-      e.preventDefault();
+      if (nav(i, e.key)) e.preventDefault();
     },
+    nav: (key) => nav(i, key),
   });
 
   return { item, focusAt, active: cur };
 }
 
-/** Focuses the tabbable node of a list by element id (e.g. from the search box). */
+/**
+ * Focuses the tabbable node of a list by element id (e.g. from the search box): the primary cell
+ * (or group header button) of a grid row, or a listbox option.
+ */
 export function focusList(id: string): boolean {
   const el = document
     .getElementById(id)
-    ?.querySelector<HTMLElement>('[role="option"][tabindex="0"], button[tabindex="0"]');
+    ?.querySelector<HTMLElement>(
+      '[role="row"] [tabindex="0"], [role="option"][tabindex="0"], button[tabindex="0"]',
+    );
   el?.focus();
   return !!el;
 }

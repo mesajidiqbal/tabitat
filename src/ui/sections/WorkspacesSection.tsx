@@ -1,4 +1,4 @@
-/** WORKSPACES: inline form and the listbox of rows (popup) or cards. */
+/** WORKSPACES: inline form and the grid of rows (popup) or cards (side panel). */
 import { t } from "@/i18n";
 import { newWorkspaceOpen } from "../actions";
 import c from "../components/controls.module.css";
@@ -42,12 +42,20 @@ export function WorkspacesSection(p: { variant: "popup" | "panel"; onExitTop?: (
       {list.length === 0 ? (
         ready && <EmptyState title={t("noWorkspacesTitle")} hint={t("noWorkspacesHint")} />
       ) : (
-        <div id={WS_LIST_ID} role="listbox" aria-labelledby="ws-h" class={panel ? r.cards : r.list}>
+        // biome-ignore lint/a11y/useSemanticElements: ARIA grid of div rows (flex rows / cards; no table elements)
+        <div
+          id={WS_LIST_ID}
+          role="grid"
+          aria-labelledby="ws-h"
+          aria-rowcount={list.length}
+          class={panel ? r.cards : r.list}
+        >
           {list.map((m, i) => (
             <WorkspaceRow
               key={m.id}
               meta={m}
               item={roving.item(i)}
+              rowIndex={i + 1}
               active={m.id === active}
               elsewhere={own[m.id] !== undefined && own[m.id] !== w}
               tabCount={m.id === active ? liveCount : (tabs[m.id]?.tabs.length ?? 0)}

@@ -91,7 +91,7 @@ test("(i) dashboard renders seeded workspaces and quick links; painted < 300 ms"
 
   await page.bringToFront();
   await page.goto(extUrl("dashboard.html"));
-  const cards = page.locator("#dash-ws-list [role=option]");
+  const cards = page.locator("#dash-ws-list [role=row]");
   await expect(cards.filter({ hasText: "Alpha" })).toBeVisible();
   await expect(cards.filter({ hasText: "Beta" })).toContainText("3 tabs");
   await expect(page.getByRole("link", { name: "Team Docs" })).toBeVisible();

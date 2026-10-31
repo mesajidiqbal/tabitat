@@ -31,13 +31,21 @@ export function ClosedSection(p: { variant: "popup" | "panel" }) {
         onToggle={() => setOpen(!open)}
       />
       {open && (
-        <div id="closed-list" role="listbox" aria-labelledby="closed-h" class={r.list}>
+        // biome-ignore lint/a11y/useSemanticElements: ARIA grid of div rows (flex rows / cards; no table elements)
+        <div
+          id="closed-list"
+          role="grid"
+          aria-labelledby="closed-h"
+          aria-rowcount={all.length}
+          class={r.list}
+        >
           {list.map((c, i) => (
             <TabRow
               key={c.id}
               title={c.title}
               url={c.url}
               item={roving.item(i)}
+              rowIndex={i + 1}
               meta={relTime(c.closedAt)}
               showHost={p.variant === "panel"}
               onOpen={() => void openUrl(c.url)}

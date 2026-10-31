@@ -110,7 +110,7 @@ export function QuickLinksGrid({ compact }: WidgetProps) {
       aria-label={t("dashLinkAdd")}
     >
       <IconPlus size={14} />
-      {t("new")}
+      {t("add")}
     </button>
   );
 

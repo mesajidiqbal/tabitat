@@ -105,7 +105,7 @@ switch (they belong to the window, not the workspace).
   "name": "Tabitat",
   "minimum_chrome_version": "121",        // tabs.lastAccessed, sidePanel, tabs.discard
   "permissions": ["tabs","tabGroups","storage","unlimitedStorage","sidePanel",
-                  "alarms","sessions","favicon","notifications","search"],
+                  "alarms","favicon","notifications","search"],
   "optional_permissions": ["bookmarks"],  // import bookmarks → quick links
   "host_permissions": [],
   "background": { "service_worker": "background.js", "type": "module" },
