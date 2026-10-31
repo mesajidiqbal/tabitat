@@ -4,6 +4,7 @@ import { buildPlaceholderUrl } from "../ops/url";
 import { BASE, NOW, savedTab, workspaceMeta, workspaceTabs } from "../testing/fixtures";
 import {
   buildHtmlExport,
+  DEFAULT_EXPORT_LABELS,
   escapeHtml,
   exportFilename,
   savedLinksOf,
@@ -272,5 +273,104 @@ describe("exportFilename", () => {
   it("uses the UTC date of now", () => {
     expect(exportFilename(Date.UTC(2026, 9, 31, 23, 59))).toBe("tabitat-2026-10-31.html");
     expect(exportFilename(Date.UTC(2026, 0, 2), 3)).toBe("tabitat-session-3-2026-01-02.html");
+  });
+});
+
+describe("export labels", () => {
+  const all = {
+    kind: "all" as const,
+    workspaces: withSavedLinks([
+      {
+        meta: workspaceMeta("A", { name: "Work", resources: [link("l", "https://l.example/", 0)] }),
+        tabs: workspaceTabs([savedTab({ id: "t", url: "https://t.example/" })]),
+      },
+    ]),
+    quicklinks: {
+      items: [{ id: "q", url: "https://q.example/", title: "Q", order: 0 }],
+      rev: 1,
+    },
+  };
+  const sessionInput = {
+    kind: "generation" as const,
+    generation: {
+      id: 3,
+      takenAt: NOW,
+      windows: [
+        {
+          windowId: 1,
+          workspaceId: null,
+          tabs: [savedTab({ id: "w", url: "https://w.example/" })],
+        },
+      ],
+    },
+  };
+
+  it("labels override the English strings (and are escaped)", () => {
+    const labels = {
+      title: "Export <T>",
+      exportHeading: "Exportación",
+      sessionHeading: "Sesión",
+      savedLinks: "Enlaces guardados",
+      quickLinks: "Enlaces rápidos",
+      window: "Ventana",
+    };
+    const a = buildHtmlExport(all, { now: NOW, labels }).html;
+    expect(a).toContain("<TITLE>Export &lt;T&gt;</TITLE>");
+    expect(a).toContain("<H1>Exportación — 2027-01-15</H1>");
+    expect(a).toContain("<DT><H3>Enlaces guardados</H3>");
+    expect(a).toContain("<DT><H3>Enlaces rápidos</H3>");
+    expect(a).not.toContain("Saved links");
+    expect(a).not.toContain("Quick links");
+    const s = buildHtmlExport(sessionInput, { now: NOW, labels }).html;
+    expect(s).toContain("<H1>Sesión 3 — 2027-01-15</H1>");
+    expect(s).toContain(">Ventana 1</H3>");
+  });
+
+  it("defaults apply when labels are missing, partial or empty", () => {
+    const base = buildHtmlExport(all, { now: NOW }).html;
+    expect(base).toContain("<TITLE>Tabitat export</TITLE>");
+    expect(base).toContain("<H1>Tabitat export — 2027-01-15</H1>");
+    expect(base).toContain("<DT><H3>Saved links</H3>");
+    expect(base).toContain("<DT><H3>Quick links</H3>");
+    expect(buildHtmlExport(sessionInput, { now: NOW }).html).toContain("<H1>Tabitat session 3 — ");
+    const partial = buildHtmlExport(all, {
+      now: NOW,
+      labels: { quickLinks: "Mine", savedLinks: "", title: "  " },
+    }).html;
+    expect(partial).toContain("<DT><H3>Mine</H3>");
+    expect(partial).toContain("<DT><H3>Saved links</H3>");
+    expect(partial).toContain("<TITLE>Tabitat export</TITLE>");
+    expect(buildHtmlExport(all, { now: NOW, labels: DEFAULT_EXPORT_LABELS }).html).toBe(base);
+  });
+});
+
+describe("stripQuery and URL-shaped titles", () => {
+  it("strips the query/hash from titles that are URLs, keeps other titles", () => {
+    const tabs = workspaceTabs([
+      savedTab({
+        id: "a",
+        url: "https://a.example/p?token=SECRET#frag",
+        title: "https://a.example/p?token=SECRET#frag",
+      }),
+      savedTab({
+        id: "b",
+        url: "https://b.example/?x=1",
+        title: "http://other.example/?y=2",
+        index: 1,
+      }),
+      savedTab({ id: "c", url: "https://c.example/?x=1", title: "Docs ? what #1", index: 2 }),
+    ]);
+    const input = {
+      kind: "all" as const,
+      workspaces: withSavedLinks([{ meta: workspaceMeta("A", { name: "W" }), tabs }]),
+      quicklinks: { items: [], rev: 0 },
+    };
+    const on = buildHtmlExport(input, { now: NOW, stripQuery: true }).html;
+    expect(on).not.toContain("SECRET");
+    expect(on).toContain(">https://a.example/p</A>");
+    expect(on).toContain(">http://other.example/</A>");
+    expect(on).toContain(">Docs ? what #1</A>");
+    const off = buildHtmlExport(input, { now: NOW }).html;
+    expect(off).toContain(">https://a.example/p?token=SECRET#frag</A>");
   });
 });

@@ -254,6 +254,7 @@ export function createRuntimePort(): RuntimePort {
   return {
     getURL: (path) => chrome.runtime.getURL(path),
     id: chrome.runtime.id,
+    getMessage: (key, subs) => chrome.i18n.getMessage(key, subs),
   };
 }
 

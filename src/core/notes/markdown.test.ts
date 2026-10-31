@@ -172,3 +172,136 @@ describe("safeHref", () => {
     expect(safeHref("ftp://a.test")).toBeNull();
   });
 });
+
+describe("adversarial input stays linear", () => {
+  const N = 40_000;
+  const BOUND_MS = 100;
+
+  /** Parses `src`, asserts the time bound, returns the first block's inline children. */
+  function timed(name: string, src: string): Inline[] {
+    const t0 = performance.now();
+    const blocks = parseMarkdown(src);
+    const ms = performance.now() - t0;
+    console.info(`[markdown perf] ${name}: ${ms.toFixed(1)} ms`);
+    expect(ms).toBeLessThan(BOUND_MS);
+    const first = blocks[0];
+    expect(first).toBeDefined();
+    return first?.type === "list"
+      ? (first.items[0] ?? [])
+      : (first as { children: Inline[] }).children;
+  }
+
+  const flat = (nodes: Inline[]) =>
+    nodes.map((n) => (n.type === "text" || n.type === "code" ? n.text : "")).join("");
+  const onlyText = (nodes: Inline[], joined: string) => {
+    expect(nodes.every((n) => n.type === "text")).toBe(true);
+    expect(flat(nodes)).toBe(joined);
+  };
+  const hasText = (nodes: Inline[]) => expect(nodes.some((n) => n.type === "text")).toBe(true);
+
+  it("unmatched [", () => {
+    const src = "[".repeat(N);
+    onlyText(timed("unmatched [", src), src);
+    const src2 = "[a".repeat(N / 2);
+    onlyText(timed("[a x20k", src2), src2);
+  });
+
+  it("[x]( without a closing paren", () => {
+    const src = "[a](".repeat(N / 4);
+    onlyText(timed("[a]( x10k", src), src);
+    const src2 = `${"[a](http://x ".repeat(N / 13)})`;
+    hasText(timed("[a](http://x x3k + )", src2));
+    const src3 = `${"[a](http://x.io/(".repeat(N / 20)}))`;
+    hasText(timed("[a](http://x.io/( x2k + ))", src3));
+  });
+
+  it("unmatched *", () => {
+    const src = "*".repeat(N);
+    onlyText(timed("unmatched *", src), src);
+  });
+
+  it("* that always follows a space has no closer", () => {
+    const src = "*a ".repeat(N / 3);
+    hasText(timed("*a x13k", src));
+  });
+
+  it("many ** pairs and strays", () => {
+    hasText(timed("**a x10k", "**a ".repeat(N / 4)));
+    hasText(timed("**a x with one backtick", `**a \`${"**a ".repeat(N / 4)}`));
+  });
+
+  it("backticks", () => {
+    hasText(timed("backticks", "`".repeat(N)));
+    hasText(timed("`` x20k", "``a".repeat(N / 3)));
+    const src2 = `*a \`${"*a ".repeat(N / 3)}`;
+    hasText(timed("*a with one backtick", src2));
+  });
+
+  it("long whitespace runs and many list lines", () => {
+    const ws = `${" ".repeat(N)}x`;
+    expect(timed("whitespace run", ws).length).toBeGreaterThan(0);
+    const t0 = performance.now();
+    const blocks = parseMarkdown(Array.from({ length: N }, (_, i) => `- item ${i}`).join("\n"));
+    expect(performance.now() - t0).toBeLessThan(BOUND_MS * 4);
+    expect(blocks).toHaveLength(1);
+  });
+
+  it("deeply nested lists", () => {
+    const src = Array.from(
+      { length: 5000 },
+      (_, i) => `${" ".repeat(i % 4)}- `.repeat(1) + "- ".repeat(i % 50),
+    ).join("\n");
+    const t0 = performance.now();
+    const blocks = parseMarkdown(src);
+    const ms = performance.now() - t0;
+    console.info(`[markdown perf] nested lists: ${ms.toFixed(1)} ms`);
+    expect(ms).toBeLessThan(BOUND_MS);
+    expect(blocks.length).toBeGreaterThan(0);
+    const deep = timed("one deep list line", `- ${"- ".repeat(N / 2)}x`);
+    expect(deep.every((n) => n.type === "text")).toBe(true);
+  });
+
+  it("closers are still found after a failed search elsewhere", () => {
+    expect(parseInline("no close * **b** *c* [a](https://x.io)")).toEqual([
+      text("no close * "),
+      { type: "bold", children: [text("b")] },
+      text(" "),
+      { type: "italic", children: [text("c")] },
+      text(" "),
+      { type: "link", href: "https://x.io/", children: [text("a")] },
+    ]);
+  });
+});
+
+describe("links with parentheses in the URL", () => {
+  it("balanced parentheses stay in the target; the link ends at the first unbalanced )", () => {
+    expect(parseInline("[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) after")).toEqual([
+      { type: "link", href: "https://en.wikipedia.org/wiki/Foo_(bar)", children: [text("Foo")] },
+      text(" after"),
+    ]);
+    expect(parseInline("(see [a](https://x.io/a_(b_(c))) now)")).toEqual([
+      text("(see "),
+      { type: "link", href: "https://x.io/a_(b_(c))", children: [text("a")] },
+      text(" now)"),
+    ]);
+    expect(parseInline("[a](https://x.io/p)(q)")).toEqual([
+      { type: "link", href: "https://x.io/p", children: [text("a")] },
+      text("(q)"),
+    ]);
+  });
+
+  it("an unbalanced target degrades to text", () => {
+    expect(parseInline("[a](https://x.io/a_(b)")).toEqual([text("[a](https://x.io/a_(b)")]);
+    expect(parseInline("[a](https://x.io/a_((b)")).toEqual([text("[a](https://x.io/a_((b)")]);
+  });
+
+  it("stays linear with many open parentheses", () => {
+    const src = `${"[a](http://x.io/(".repeat(2500)}))`;
+    const t0 = performance.now();
+    const nodes = parseInline(src);
+    const ms = performance.now() - t0;
+    console.info(`[markdown perf] [a](http://x.io/( x2500: ${ms.toFixed(1)} ms`);
+    expect(ms).toBeLessThan(100);
+    expect(nodes.some((n) => n.type === "text")).toBe(true);
+  });
+});

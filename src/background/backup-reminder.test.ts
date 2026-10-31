@@ -69,6 +69,35 @@ describe("backup.exportHtml", () => {
   });
 });
 
+describe("export labels", () => {
+  it("uses chrome.i18n messages, falling back to English for empty ones", async () => {
+    const h = await setup({
+      windows: [["https://w1.example/"]],
+      before: (fake) => {
+        seedMeta(fake, 1);
+        seedWorkspace(fake, "A", ["https://a.example/"], { name: "Alpha" });
+        fake.local.set(Keys.quicklinks, {
+          items: [{ id: "q", url: "https://quick.example/", title: "Quick", order: 0 }],
+          rev: 1,
+        });
+        fake.messages.set("exportTitle", "Exportación");
+        fake.messages.set("exportHeading", "Exportación de Tabitat");
+        fake.messages.set("exportQuickLinks", "Enlaces rápidos");
+        fake.messages.set("exportWindow", "Ventana");
+        fake.messages.set("exportSessionHeading", "Sesión de Tabitat");
+        fake.messages.set("exportSavedLinks", "  ");
+      },
+    });
+    const all = await h.ok("backup.exportHtml", {});
+    expect(all.html).toContain("<TITLE>Exportación</TITLE>");
+    expect(all.html).toContain("<H1>Exportación de Tabitat — ");
+    expect(all.html).toContain("<DT><H3>Enlaces rápidos</H3>");
+    const { generation: gen } = await h.ok("session.snapshotNow", {});
+    const ses = await h.ok("session.exportHtml", { generation: gen });
+    expect(ses.html).toContain(`<H1>Sesión de Tabitat ${gen} — `);
+  });
+});
+
 describe("session.exportHtml", () => {
   it("exports one generation, one folder per window; does not stamp; not_found otherwise", async () => {
     const h = await setup({
@@ -140,6 +169,43 @@ describe("backup reminder", () => {
     await h.ok("settings.update", { patch: { backupReminderDays: 10 } });
     expect(h.fake.alarms.has("backup-reminder")).toBe(true);
     expect(reminder(h.fake)).toBeDefined();
+  });
+
+  it("snooze is a no-op when the reminder is off, and creates no record when not due", async () => {
+    const off = await setup({ before: (fake) => seedMeta(fake, 90, { lastBackupAt: undefined }) });
+    expect(reminder(off.fake)).toEqual({ dueSince: off.fake.clock });
+    await off.ok("settings.update", { patch: { backupReminderDays: 0 } });
+    expect(reminder(off.fake)).toBeUndefined();
+    await off.ok("reminder.snooze", { days: 7 }); // a stale queued snooze
+    expect(reminder(off.fake)).toBeUndefined();
+    // a record that somehow exists while off is removed
+    off.fake.local.set(BgKeys.backupReminder, { dueSince: 1 });
+    await off.ok("reminder.snooze", { days: 7 });
+    expect(reminder(off.fake)).toBeUndefined();
+
+    const fresh = await setup({ before: (fake) => seedMeta(fake, 5) });
+    await fresh.ok("reminder.snooze", { days: 7 });
+    expect(reminder(fresh.fake)).toBeUndefined();
+  });
+
+  it("snooze when due writes the record; turning off afterwards leaves nothing", async () => {
+    const h = await setup({ before: (fake) => seedMeta(fake, 40) });
+    const dueSince = h.fake.clock;
+    expect(reminder(h.fake)).toEqual({ dueSince });
+    await h.ok("reminder.snooze", { days: 3 });
+    expect(reminder(h.fake)).toEqual({ dueSince, snoozedUntil: dueSince + 3 * DAY_MS });
+    await h.ok("settings.update", { patch: { backupReminderDays: 0 } });
+    expect(reminder(h.fake)).toBeUndefined();
+    await h.ok("reminder.snooze", { days: 3 });
+    expect(reminder(h.fake)).toBeUndefined();
+  });
+
+  it("recordBackup clears an existing record and tolerates a missing one", async () => {
+    const h = await setup({ before: (fake) => seedMeta(fake, 40) });
+    await h.ok("backup.export", {});
+    expect(reminder(h.fake)).toBeUndefined();
+    await h.ok("backup.export", {});
+    expect(reminder(h.fake)).toBeUndefined();
   });
 
   it("a corrupt record is quarantined and rebuilt", async () => {

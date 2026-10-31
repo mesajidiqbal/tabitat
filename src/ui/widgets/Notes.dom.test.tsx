@@ -3,8 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/pr
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setTransport } from "@/messaging/client";
 import type { RpcRequest } from "@/messaging/commands";
-import { store } from "../store";
 import { Notes } from "./Notes";
+import { resetNoteDrafts } from "./noteDrafts";
+import { records } from "./records";
 
 type NotePayload = { scope: string; content: string; expectedRev?: number };
 let calls: NotePayload[] = [];
@@ -15,7 +16,7 @@ const stored = { content: "theirs", updatedAt: 5, rev: 4 };
 beforeEach(() => {
   calls = [];
   accept = false;
-  store.notes.value = { global: { content: "old", updatedAt: 1, rev: 3 } };
+  records.notes.value = { global: { content: "old", updatedAt: 1, rev: 3 } };
   setTransport(async (msg: RpcRequest) => {
     const p = msg.payload as NotePayload;
     calls.push(p);
@@ -31,7 +32,8 @@ afterEach(() => {
   cleanup();
   setTransport(null);
   vi.unstubAllGlobals();
-  store.notes.value = {};
+  records.notes.value = {};
+  resetNoteDrafts();
 });
 
 const textarea = () => screen.getByRole("textbox", { name: "Notes" }) as HTMLTextAreaElement;
@@ -78,7 +80,7 @@ describe("Notes (DOM)", () => {
   });
 
   it("Preview renders markdown as elements (no HTML passthrough)", () => {
-    store.notes.value = {
+    records.notes.value = {
       global: { content: "# Hi\n<b>x</b> [l](https://a.test)", updatedAt: 1, rev: 1 },
     };
     render(<Notes />);
@@ -89,5 +91,40 @@ describe("Notes (DOM)", () => {
     const link = screen.getByRole("link", { name: "l" });
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  it("a conflicted draft survives unmount: remounting shows it with the notice (C-B1)", async () => {
+    const first = render(<Notes />);
+    type("my draft");
+    await screen.findByRole("alert");
+    first.unmount();
+    // The unmount does not try to save the conflicted draft over the other change.
+    await new Promise((r) => setTimeout(r, 650));
+    expect(calls).toHaveLength(1);
+    render(<Notes />);
+    expect(textarea().value).toBe("my draft");
+    expect(screen.getByRole("alert").textContent).toContain("Changed elsewhere");
+    expect(sessionStorage.getItem("tabitat:noteDraft:global")).toContain("my draft");
+  });
+
+  it("a conflicted draft is restored from sessionStorage after a reload", async () => {
+    const first = render(<Notes />);
+    type("before reload");
+    await screen.findByRole("alert");
+    first.unmount();
+    resetNoteDrafts(true);
+    render(<Notes />);
+    expect(textarea().value).toBe("before reload");
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
+  it("a clean pending draft is saved on unmount and cleared once acknowledged", async () => {
+    accept = true;
+    const first = render(<Notes />);
+    type("quick note");
+    first.unmount();
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toEqual({ scope: "global", content: "quick note", expectedRev: 3 });
+    await waitFor(() => expect(sessionStorage.getItem("tabitat:noteDraft:global")).toBeNull());
   });
 });

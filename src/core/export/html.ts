@@ -9,7 +9,7 @@
  *
  * URLs the running browser could not restore (`classifyUrl === "skip"`: javascript:, data:,
  * foreign internal schemes, …) are left out; placeholder URLs are unwrapped when a placeholder
- * base is given; `stripQuery` drops `?query` and `#fragment`. `ADD_DATE` is in Unix seconds.
+ * base is given; `stripQuery` drops `?query` and `#fragment` (also from a title that is itself a URL). `ADD_DATE` is in Unix seconds.
  */
 import type { HtmlExport } from "../../messaging/commands";
 import type {
@@ -37,8 +37,35 @@ export type HtmlExportInput =
       workspaceNames?: Record<string, string>;
     };
 
+/** Human-readable strings of the export; the worker passes translated ones (core has no i18n). */
+export interface ExportLabels {
+  /** `<TITLE>` of the file. */
+  title: string;
+  /** `<H1>` of an "all" export, followed by ` — <date>`. */
+  exportHeading: string;
+  /** `<H1>` of a session export, followed by ` <generation> — <date>`. */
+  sessionHeading: string;
+  /** Sub-folder holding a workspace's saved links. */
+  savedLinks: string;
+  /** Folder of the quick links. */
+  quickLinks: string;
+  /** Folder name of a window without a known workspace, followed by ` <n>`. */
+  window: string;
+}
+
+export const DEFAULT_EXPORT_LABELS: ExportLabels = {
+  title: "Tabitat export",
+  exportHeading: "Tabitat export",
+  sessionHeading: "Tabitat session",
+  savedLinks: "Saved links",
+  quickLinks: "Quick links",
+  window: "Window",
+};
+
 export interface HtmlExportOptions {
   now: number;
+  /** Overrides of the English defaults; a missing or empty entry keeps the default. */
+  labels?: Partial<ExportLabels>;
   stripQuery?: boolean;
   /** Placeholder page URL (`chrome.runtime.getURL("suspended.html")`); unwrapped when given. */
   placeholderBase?: string;
@@ -75,6 +102,18 @@ export function stripQueryAndHash(url: string): string {
     return u.href;
   } catch {
     return url.split(/[?#]/)[0] ?? url;
+  }
+}
+
+/** A title that is itself an http(s) URL (tabs without a title show their URL). */
+function isUrlTitle(title: string): boolean {
+  const t = title.trim();
+  if (!/^https?:\/\//i.test(t)) return false;
+  try {
+    new URL(t);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -137,16 +176,22 @@ export function buildHtmlExport(input: HtmlExportInput, opts: HtmlExportOptions)
     const real = opts.placeholderBase ? unwrapUrl(url, opts.placeholderBase) : url;
     if (classifyUrl(real) === "skip") return null;
     const out = opts.stripQuery ? stripQueryAndHash(real) : real;
-    return { url: out, title: title.trim() === "" ? out : title, addedAt };
+    const shown = opts.stripQuery && isUrlTitle(title) ? stripQueryAndHash(title.trim()) : title;
+    return { url: out, title: shown.trim() === "" ? out : shown, addedAt };
   };
   const entries = <T>(items: readonly T[], f: (x: T) => Entry | null): Entry[] =>
     items.map(f).filter((e): e is Entry => e !== null);
   const byIndex = (tabs: readonly SavedTab[]) => [...tabs].sort((a, b) => a.index - b.index);
 
+  const labels: ExportLabels = { ...DEFAULT_EXPORT_LABELS };
+  for (const k of Object.keys(labels) as Array<keyof ExportLabels>) {
+    const v = opts.labels?.[k];
+    if (typeof v === "string" && v.trim() !== "") labels[k] = v;
+  }
   const top: Folder[] = [];
   let heading: string;
   if (input.kind === "all") {
-    heading = `Tabitat export — ${isoDate(opts.now)}`;
+    heading = `${labels.exportHeading} — ${isoDate(opts.now)}`;
     for (const ws of input.workspaces) {
       const folder: Folder = {
         name: ws.meta.name,
@@ -159,17 +204,17 @@ export function buildHtmlExport(input: HtmlExportInput, opts: HtmlExportOptions)
         (l) => entry(l.url, l.title, l.addedAt),
       );
       if (links.length > 0)
-        folder.folders.push({ name: "Saved links", entries: links, folders: [] });
+        folder.folders.push({ name: labels.savedLinks, entries: links, folders: [] });
       top.push(folder);
     }
     const quick = entries(
       [...input.quicklinks.items].sort((a, b) => a.order - b.order),
       (q) => entry(q.url, q.title, opts.now),
     );
-    if (quick.length > 0) top.push({ name: "Quick links", entries: quick, folders: [] });
+    if (quick.length > 0) top.push({ name: labels.quickLinks, entries: quick, folders: [] });
   } else {
     const g = input.generation;
-    heading = `Tabitat session ${g.id} — ${isoDate(opts.now)}`;
+    heading = `${labels.sessionHeading} ${g.id} — ${isoDate(opts.now)}`;
     g.windows.forEach((win, i) => {
       const names = input.workspaceNames;
       const known =
@@ -177,7 +222,7 @@ export function buildHtmlExport(input: HtmlExportInput, opts: HtmlExportOptions)
           ? names[win.workspaceId]
           : undefined;
       top.push({
-        name: known ?? `Window ${i + 1}`,
+        name: known ?? `${labels.window} ${i + 1}`,
         addedAt: g.takenAt,
         entries: entries(byIndex(win.tabs), (t) => entry(t.url, t.title, g.takenAt)),
         folders: [],
@@ -188,7 +233,7 @@ export function buildHtmlExport(input: HtmlExportInput, opts: HtmlExportOptions)
   const w = new Writer();
   w.line(0, "<!DOCTYPE NETSCAPE-Bookmark-file-1>");
   w.line(0, '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">');
-  w.line(0, "<TITLE>Tabitat export</TITLE>");
+  w.line(0, `<TITLE>${escapeHtml(labels.title)}</TITLE>`);
   w.line(0, `<H1>${escapeHtml(heading)}</H1>`);
   w.line(0, "<DL><p>");
   for (const f of top) writeFolder(w, 1, f);

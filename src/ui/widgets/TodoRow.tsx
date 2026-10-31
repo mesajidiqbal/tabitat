@@ -1,6 +1,7 @@
 /**
- * One todo (list item with roving focus). Space / Enter toggles, F2 or double-click edits,
- * Delete removes, Alt+↑↓ moves; drag and drop reorders.
+ * One todo. Its checkbox is the roving focus target (native checked state; Space toggles), and
+ * carries the row keys: Enter toggles, F2 edits (double-click too), Delete removes, Alt+↑↓
+ * moves. A visually hidden hint (`hintId`) lists them. Drag and drop reorders.
  */
 import { useRef, useState } from "preact/hooks";
 import type { Todo } from "@/core/model/types";
@@ -11,10 +12,15 @@ import type { RovingItem } from "../hooks/useRoving";
 import { IconClose } from "../icons";
 import s from "./widgets.module.css";
 
+export const TODO_KEYS = "Enter F2 Delete Alt+ArrowUp Alt+ArrowDown";
+
 export interface TodoRowProps {
   todo: Todo;
   item: RovingItem;
-  onToggle: () => void;
+  /** Id of the keyboard hint the checkbox points at. */
+  hintId?: string;
+  /** Sets done to the value chosen at click time (C-B3). */
+  onToggle: (done: boolean) => void;
   onEdit: (text: string) => void;
   onDelete: () => void;
   onMove: (delta: -1 | 1) => void;
@@ -32,7 +38,7 @@ export function TodoRow(p: TodoRowProps) {
   const [editing, setEditing] = useState(false);
   /** Set when the edit ended by key (Enter / Escape): the blur that follows is ignored. */
   const ended = useRef(false);
-  const row = useRef<HTMLLIElement | null>(null);
+  const box = useRef<HTMLInputElement | null>(null);
   const startEdit = () => {
     ended.current = false;
     setEditing(true);
@@ -40,14 +46,15 @@ export function TodoRow(p: TodoRowProps) {
   const stopEdit = () => {
     ended.current = true;
     setEditing(false);
-    setTimeout(() => row.current?.focus());
+    setTimeout(() => box.current?.focus());
   };
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.target !== e.currentTarget) return;
+    if (e.target !== e.currentTarget || e.isComposing) return;
     const k = e.key;
     if (e.altKey && (k === "ArrowUp" || k === "ArrowDown")) p.onMove(k === "ArrowUp" ? -1 : 1);
     else if (e.altKey || e.ctrlKey || e.metaKey) return;
-    else if (k === " " || k === "Enter") p.onToggle();
+    // Space is the checkbox's own toggle (its change event).
+    else if (k === "Enter") p.onToggle(!todo.done);
     else if (k === "F2") startEdit();
     else if (k === "Delete" || k === "Backspace") p.onDelete();
     else return p.item.onKeyDown(e);
@@ -59,14 +66,6 @@ export function TodoRow(p: TodoRowProps) {
   return (
     <li
       class={`${s.todo} ${p.drag.over ? s.dragOver : ""}`}
-      tabIndex={p.item.tabIndex}
-      ref={(el) => {
-        row.current = el;
-        p.item.ref(el);
-      }}
-      onFocus={p.item.onFocus}
-      onKeyDown={onKeyDown}
-      aria-label={`${todo.text}${todo.done ? ` (${t("dashTodoDone")})` : ""}`}
       draggable={!editing}
       onDragStart={(e) => {
         e.dataTransfer?.setData("text/plain", todo.text);
@@ -84,10 +83,19 @@ export function TodoRow(p: TodoRowProps) {
     >
       <input
         type="checkbox"
-        tabIndex={-1}
+        class={s.todoBox}
+        tabIndex={p.item.tabIndex}
+        ref={(el) => {
+          box.current = el;
+          p.item.ref(el);
+        }}
+        onFocus={p.item.onFocus}
+        onKeyDown={onKeyDown}
         checked={todo.done}
         aria-label={t("dashTodoToggle", todo.text)}
-        onChange={p.onToggle}
+        aria-describedby={p.hintId}
+        aria-keyshortcuts={TODO_KEYS}
+        onChange={(e) => p.onToggle(e.currentTarget.checked)}
       />
       {editing ? (
         <input
@@ -104,6 +112,8 @@ export function TodoRow(p: TodoRowProps) {
           }}
           onKeyDown={(e) => {
             e.stopPropagation();
+            // IME: Enter / Escape that confirm or cancel a composition are not ours (C-B8).
+            if (e.isComposing) return;
             if (e.key === "Enter") commit(e.currentTarget.value);
             else if (e.key !== "Escape") return;
             e.preventDefault();

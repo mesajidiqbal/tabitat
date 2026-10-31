@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { t } from "@/i18n";
 import { closePopup, newWorkspaceOpen, openSidePanel, switchTo, uiError } from "../actions";
-import { openHit, search } from "../search";
+import { openFirstHit, openHit, preloadSearch, searchHits, searchReady } from "../searchLoader";
 import { WS_LIST_ID } from "../sections/WorkspacesSection";
 import { busy, workspaces } from "../store";
 import { focusList } from "./useRoving";
@@ -33,7 +33,7 @@ export function useSurface(variant: "popup" | "panel") {
   const [query, setQueryRaw] = useState("");
   const [selectedRaw, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const hits = search(query);
+  const hits = searchHits(query);
   // Hits can shrink under a stale selection (e.g. a tab closed): always use the clamped index.
   const selected = effectiveSelection(selectedRaw, hits.length);
   const setQuery = (q: string) => {
@@ -42,6 +42,9 @@ export function useSurface(variant: "popup" | "panel") {
   };
   const focusSearch = () => inputRef.current?.focus();
   const popup = variant === "popup";
+
+  // The search engine is a separate chunk: fetch it once the first frame is out.
+  useEffect(() => preloadSearch(), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -73,6 +76,7 @@ export function useSurface(variant: "popup" | "panel") {
       // A switch is running: say so instead of silently ignoring the key (switchTo would no-op).
       if (hit?.kind === "workspace" && busy.peek()) uiError.value = { text: t("err_busy") };
       else if (hit) void openHit(hit);
+      else if (!searchReady()) void openFirstHit(query);
     } else if (k === "Escape") {
       if (!empty) setQuery("");
       else if (popup) closePopup();

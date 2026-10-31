@@ -37,6 +37,11 @@ test.beforeAll(async () => {
   page = await ext.context.newPage();
   await page.goto(extUrl("dashboard.html"));
   await expect.poll(async () => (await rpc("system.ping", {}))?.ok, { timeout: 15_000 }).toBe(true);
+  // The worker's first-run migration writes the missing defaults from a start-up snapshot: seed
+  // only after it has written `meta`, or a seed can be overwritten (as in export.spec.ts).
+  await expect
+    .poll(async () => (await readKey("meta")) !== undefined, { timeout: 15_000 })
+    .toBe(true);
 });
 
 test.afterAll(async () => {
@@ -139,6 +144,67 @@ test("(j) adding a todo and a quick link persists through the worker", async () 
       rev: 2,
       last: expect.objectContaining({ url: "https://example.org/start", title: "Example Org" }),
     });
+});
+
+test("(j2) two dashboards adding todos at once: both land, written with the higher rev", async () => {
+  const before = (await readKey<{ rev: number }>("todos:global"))?.rev ?? 0;
+  const other = await ext.context.newPage();
+  await other.goto(extUrl("dashboard.html"));
+  const boxA = page.getByRole("textbox", { name: "Add a task" });
+  const boxB = other.getByRole("textbox", { name: "Add a task" });
+  await expect(boxB).toBeVisible();
+  await boxA.fill("From page A");
+  await boxB.fill("From page B");
+  // Both Enters go out before either page has seen the other's write: one of them conflicts,
+  // re-reads and replays its add on top of the other.
+  await Promise.all([boxA.press("Enter"), boxB.press("Enter")]);
+  await expect
+    .poll(async () => {
+      const list = await readKey<{ rev: number; items: Array<{ text: string }> }>("todos:global");
+      const texts = list?.items.map((x) => x.text) ?? [];
+      return {
+        a: texts.includes("From page A"),
+        b: texts.includes("From page B"),
+        rev: (list?.rev ?? 0) >= before + 2,
+      };
+    })
+    .toEqual({ a: true, b: true, rev: true });
+  // Both pages show both items, and both boxes were cleared once their write was acknowledged.
+  for (const p of [page, other]) {
+    for (const text of ["From page A", "From page B"])
+      await expect(p.getByRole("listitem").filter({ hasText: text })).toBeVisible();
+    await expect(p.getByRole("textbox", { name: "Add a task" })).toHaveValue("");
+  }
+  await expect(page.getByTestId("save-error")).toHaveCount(0);
+  await other.close();
+});
+
+test("(n) the backup banner shows on the dashboard when a reminder is due", async () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  await ext.worker.evaluate(
+    async ([now, DAY]) => {
+      const meta = (await chrome.storage.local.get("meta")).meta as Record<string, unknown>;
+      await chrome.storage.local.set({
+        meta: { ...meta, installedAt: now - 40 * DAY },
+        "backup:reminder": { dueSince: now - DAY },
+      });
+    },
+    [now, DAY] as const,
+  );
+  await page.bringToFront();
+  await page.goto(extUrl("dashboard.html"));
+  const banner = page.getByTestId("backup-banner");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("No backup yet");
+  await expect(banner.getByRole("button", { name: "Turn off" })).toBeEnabled();
+  // Snooze hides it (the worker writes snoozedUntil; the banner follows storage).
+  await banner.getByRole("button", { name: "Remind me in a week" }).click();
+  await expect(banner).toHaveCount(0);
+  await expect
+    .poll(async () => (await readKey<{ snoozedUntil?: number }>("backup:reminder"))?.snoozedUntil)
+    .toBeGreaterThan(now);
+  await ext.worker.evaluate(() => chrome.storage.local.remove("backup:reminder"));
 });
 
 test("(k) pomodoro: enable the widget, Start shows a countdown and sets the key", async () => {

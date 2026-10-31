@@ -1,7 +1,9 @@
 /**
  * Dashboard (docs/PHASE4.md §4; also the new-tab page of the newtab flavor): Clock + Search top
- * row, widget cards in settings.dashboard.widgets order, ⚙ Customize. Widgets are code-split
- * (lazy + Suspense with fixed-height skeletons); the wallpaper image is loaded after first paint.
+ * row, the backup reminder banner, widget cards in settings.dashboard.widgets order, ⚙ Customize.
+ * Widgets are code-split (lazy + Suspense with fixed-height skeletons); the wallpaper image is
+ * loaded after first paint and reloaded whenever the setting's value (its `#<ts>` stamp) changes.
+ * Over an image or colour wallpaper the top row sits on a scrim so its text keeps its contrast.
  */
 import { effect } from "@preact/signals";
 import type { ComponentType } from "preact";
@@ -9,23 +11,28 @@ import { lazy, Suspense } from "preact/compat";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { WidgetId } from "@/core/model/types";
 import { t } from "@/i18n";
+import { ErrorBanner } from "@/ui/components/ErrorBanner";
+import { ProgressRow } from "@/ui/components/ProgressRow";
 import { Toast } from "@/ui/components/Toast";
 import { IconSettings } from "@/ui/icons";
-import { useStore } from "@/ui/store";
+import { BackupBanner } from "@/ui/sections/BackupBanner";
+import { store, useStore } from "@/ui/store";
 import { applyTheme } from "@/ui/theme";
 import { Skeleton } from "@/ui/widgets/Card";
 import { Clock } from "@/ui/widgets/Clock";
 import { gridWidgets } from "@/ui/widgets/order";
 import s from "./dashboard.module.css";
 import { dashboard, dashSettings } from "./settings";
-import { wallpaperBackground } from "./wallpaper";
+import {
+  isImageValue,
+  shouldDropImageBlob,
+  type Wallpaper,
+  wallpaperBackground,
+} from "./wallpaper";
 
 type W = ComponentType<{ compact?: boolean; docTitle?: boolean }>;
 
 const SearchWidget = lazy(() => import("@/ui/widgets").then((m) => ({ default: m.SearchWidget })));
-/** Error line and switch progress: only after an action, so in the widgets chunk (not first paint). */
-const ErrorBanner = lazy(() => import("@/ui/widgets").then((m) => ({ default: m.ErrorBanner })));
-const ProgressRow = lazy(() => import("@/ui/widgets").then((m) => ({ default: m.ProgressRow })));
 const Customize = lazy(() => import("./Customize").then((m) => ({ default: m.Customize })));
 const CARDS: Record<Exclude<WidgetId, "clock" | "search">, W> = {
   quicklinks: lazy(() => import("@/ui/widgets").then((m) => ({ default: m.QuickLinksGrid }))),
@@ -37,28 +44,43 @@ const CARDS: Record<Exclude<WidgetId, "clock" | "search">, W> = {
 
 effect(() => applyTheme(dashSettings.value.theme));
 
-/** The uploaded wallpaper (data: URL) when the setting is "image"; loaded after first paint. */
-function useWallpaperImage(isImage: boolean): string | null {
+/**
+ * The uploaded wallpaper (data: URL) for an image setting `value`, loaded after first paint. A new
+ * value (another upload, here or on another page) loads again; a load that finishes after a
+ * newer one started is dropped, so an older picture never replaces a newer one.
+ */
+function useWallpaperImage(value: string | null): string | null {
   const [url, setUrl] = useState<string | null>(null);
+  const seq = useRef(0);
   useEffect(() => {
-    if (!isImage) return setUrl(null);
-    let alive = true;
-    const load = () =>
-      void import("./wallpaper-db")
-        .then((m) => m.loadImageUrl())
-        .then(
-          (u) => alive && setUrl(u),
-          () => alive && setUrl(null),
-        );
-    const id = setTimeout(load, 0);
-    addEventListener("tabitat:wallpaper", load);
-    return () => {
-      alive = false;
-      clearTimeout(id);
-      removeEventListener("tabitat:wallpaper", load);
-    };
-  }, [isImage]);
+    const mine = ++seq.current;
+    if (value === null) return setUrl(null);
+    const id = setTimeout(
+      () =>
+        void import("./wallpaper-db")
+          .then((m) => m.loadImageUrl(value))
+          .then(
+            (u) => mine === seq.current && setUrl(u),
+            () => mine === seq.current && setUrl(null),
+          ),
+      0,
+    );
+    return () => clearTimeout(id);
+  }, [value]);
   return url;
+}
+
+/** Deletes the stored image once the wallpaper is no longer one (here, elsewhere or synced). */
+function useOrphanCleanup(ready: boolean, wp: Wallpaper): void {
+  const drop = shouldDropImageBlob(ready, wp);
+  useEffect(() => {
+    if (!drop) return;
+    const id = setTimeout(
+      () => void import("./wallpaper-db").then((m) => m.deleteImage()).catch(() => undefined),
+      1000,
+    );
+    return () => clearTimeout(id);
+  }, [drop, wp.kind]);
 }
 
 export function App() {
@@ -66,10 +88,12 @@ export function App() {
   const dash = dashboard.value;
   const [customize, setCustomize] = useState(false);
   const gear = useRef<HTMLButtonElement>(null);
-  const image = useWallpaperImage(dash.wallpaper.kind === "image");
-  const background = image
-    ? `center / cover no-repeat url("${image}")`
-    : wallpaperBackground(dash.wallpaper);
+  const wp = dash.wallpaper;
+  const image = useWallpaperImage(wp.kind === "image" && isImageValue(wp.value) ? wp.value : null);
+  useOrphanCleanup(store.ready.value, wp);
+  /** Image / colour wallpapers can be anything behind the text: the top row gets a scrim. */
+  const scrim = wp.kind !== "gradient" ? s.scrim : "";
+  const background = image ? `center / cover no-repeat url("${image}")` : wallpaperBackground(wp);
   const has = (w: WidgetId) => dash.widgets.includes(w);
   const close = () => {
     setCustomize(false);
@@ -91,7 +115,7 @@ export function App() {
           </button>
         </header>
         {(has("clock") || has("search")) && (
-          <div class={s.top}>
+          <div class={`${s.top} ${scrim}`}>
             {has("clock") && <Clock />}
             {has("search") && (
               <Suspense fallback={<div class={s.searchSkeleton} />}>
@@ -100,10 +124,9 @@ export function App() {
             )}
           </div>
         )}
-        <Suspense fallback={null}>
-          <ErrorBanner />
-          <ProgressRow />
-        </Suspense>
+        <BackupBanner variant="page" />
+        <ErrorBanner />
+        <ProgressRow />
         <main class={s.grid}>
           {gridWidgets(dash.widgets).map((id) => {
             const Card = CARDS[id as keyof typeof CARDS];

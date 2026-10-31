@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -137,5 +138,62 @@ describe("check-budgets", () => {
     expect(r.ok).toBe(false);
     expect(r.surfaces[0]).toMatchObject({ surface: "popup", missing: true, ok: false });
     expect(formatTable(r)).toMatch(/MISSING/);
+  });
+
+  it("strips ?query and #hash from import specifiers and resolves them", () => {
+    expect(
+      staticImports('import{a}from"./a.js?v=1";import"./b.mjs#x";export*from"./c.js?x=1#y";'),
+    ).toEqual(["./a.js", "./b.mjs", "./c.js"]);
+    const root = fixture({
+      "manifest.json": "{}",
+      "popup.html": `<script type="module" src="/p.js?v=3"></script>`,
+      "p.js": `import{a}from"./a.js?v=1";a();`,
+      "a.js": "export const a=()=>{};",
+    });
+    const files = surfaceFiles(root, "popup.html");
+    expect(files?.js.map((f) => f.slice(root.length + 1)).sort()).toEqual(["a.js", "p.js"]);
+    expect(files?.unresolved).toEqual([]);
+  });
+
+  it("only matches imports at statement boundaries, minified or not", () => {
+    expect(
+      staticImports('import"./a.js";import{b}from"./b.js";const x=1;export{c}from"./c.js"'),
+    ).toEqual(["./a.js", "./b.js", "./c.js"]);
+    expect(
+      staticImports('function f(){}import x from"./d.js";\nimport * as e from "./e.js"'),
+    ).toEqual(["./d.js", "./e.js"]);
+    // `from "./x.js"` inside strings, comments of prose, and dynamic imports are not imports
+    expect(
+      staticImports('const m="see from \\"./x.js\\"";const n=\'imported from "./y.js"\';'),
+    ).toEqual([]);
+    expect(staticImports('console.log("a from \'./z.js\'");import("./lazy.js");')).toEqual([]);
+    expect(staticImports('x=1;foo.import"./q.js"')).toEqual([]);
+  });
+
+  it("an unresolved local chunk reference fails the run with a clear message", () => {
+    const root = fixture({
+      "manifest.json": "{}",
+      "popup.html": `<script type="module" src="/chunks/p.js"></script><link rel="modulepreload" href="/chunks/gone.js">`,
+      "chunks/p.js": `import"./missing.js";import{a}from"https://cdn.example/x.js";import"lodash/x.js";`,
+    });
+    const files = surfaceFiles(root, "popup.html");
+    expect(files?.unresolved).toEqual([
+      "chunks/p.js -> ./missing.js",
+      "popup.html -> /chunks/gone.js",
+    ]);
+    const r = measureBudgets(root, { surfaces: { popup: 10_000 }, totalJs: 10_000 }, [
+      { name: "popup", entry: "popup.html" },
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.surfaces[0]).toMatchObject({ ok: false, missing: false });
+    expect(r.surfaces[0]?.unresolved).toHaveLength(2);
+    expect(formatTable(r)).toMatch(/popup.*UNRESOLVED/);
+    const cli = spawnSync(process.execPath, ["scripts/check-budgets.mjs", "--dir", root], {
+      encoding: "utf8",
+    });
+    expect(cli.status).toBe(1);
+    expect(cli.stderr).toContain(
+      "unresolved chunk reference in popup: chunks/p.js -> ./missing.js",
+    );
   });
 });

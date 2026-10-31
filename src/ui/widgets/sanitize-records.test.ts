@@ -1,6 +1,7 @@
-/** The Phase 4 record sanitizers in src/ui/sanitize.ts (todos, notes, pomodoro, rev). */
+/** The Phase 4 record sanitizers in records.ts / src/ui/sanitize.ts (todos, notes, pomodoro, rev). */
 import { describe, expect, it } from "vitest";
-import { sanitizeNote, sanitizePomodoro, sanitizeRev, sanitizeTodoList } from "../sanitize";
+import { sanitizeRev } from "../sanitize";
+import { sanitizeNote, sanitizePomodoro, sanitizeTodoList } from "./records";
 
 describe("Phase 4 record sanitizers", () => {
   it("sanitizeTodoList keeps valid items, defaults fields, missing = empty at rev 0", () => {

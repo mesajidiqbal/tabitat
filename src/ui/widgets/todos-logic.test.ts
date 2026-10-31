@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { Todo } from "@/core/model/types";
 import {
+  addBlocked,
   addTodo,
   clearDone,
   editTodo,
   moveTodo,
   moveTodoTo,
   removeTodo,
+  setDone,
   sortTodos,
   TODO_CAP,
   TODO_MAX_TEXT,
-  toggleTodo,
 } from "./todos-logic";
 
 const todo = (id: string, order: number, over: Partial<Todo> = {}): Todo => ({
@@ -60,12 +61,31 @@ describe("todo list helpers", () => {
     expect(addTodo(full.slice(1), "fits", "ok", 1)).toHaveLength(TODO_CAP);
   });
 
-  it("toggleTodo sets done + doneAt, and back clears doneAt", () => {
-    const on = toggleTodo([todo("a", 0)], "a", 99);
+  it("setDone sets done + doneAt, and back clears doneAt", () => {
+    const on = setDone([todo("a", 0)], "a", true, 99);
     expect(on[0]).toMatchObject({ done: true, doneAt: 99 });
-    const off = toggleTodo(on, "a", 100);
+    const off = setDone(on, "a", false, 100);
     expect(off[0]?.done).toBe(false);
     expect(off[0] && "doneAt" in off[0]).toBe(false);
+  });
+
+  it("setDone is idempotent: two checks from different bases converge (C-B3)", () => {
+    const base = [todo("a", 0)];
+    // Surface A checks the item and its write lands first.
+    const a = setDone(base, "a", true, 10);
+    // Surface B also checked it from the same base; its op is replayed over A's result.
+    const b = setDone(a, "a", true, 20);
+    expect(b[0]).toMatchObject({ done: true, doneAt: 10 });
+    // A then unchecks while B's replayed "check" was based on the unchecked list: last wins.
+    const c = setDone(setDone(b, "a", false, 30), "a", false, 31);
+    expect(c[0]?.done).toBe(false);
+    expect(setDone(c, "missing", true, 1)).toEqual(c);
+  });
+
+  it("addBlocked is true at the cap only", () => {
+    const full = Array.from({ length: TODO_CAP }, (_, i) => todo(`t${i}`, i));
+    expect(addBlocked(full)).toBe(true);
+    expect(addBlocked(full.slice(1))).toBe(false);
   });
 
   it("editTodo replaces text; a blank edit removes the item", () => {

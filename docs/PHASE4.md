@@ -8,10 +8,18 @@ no network; keyboard first; `src/core` pure.
 
 One explicit exception, documented here: the dashboard may write the
 wallpaper **image blob** to IndexedDB (`idb`, database `tabitat`, store
-`blobs`, key `wallpaper`) directly. It is device-local media, never synced,
-never part of a backup; the canonical setting (`dashboard.wallpaper =
-{ kind: "image", value: "idb:wallpaper" }`) still goes through
-`settings.update`.
+`blobs`, key `wallpaper`, plus the temp key `wallpaper:next` during a
+replace) directly. It is device-local media, never synced, never part of a
+backup; the canonical setting (`dashboard.wallpaper = { kind: "image", value:
+"idb:wallpaper#<ts>" }`) still goes through `settings.update`. Post-review
+(C-B4/C-B5): upload decodes the file (`createImageBitmap`), stores it under
+the temp key, writes the setting (checked), then promotes the temp to
+`wallpaper`; a failed write leaves the old image. Remove writes the setting
+first, then deletes the blob. The `#<ts>` stamp changes on every replace so
+every open dashboard reloads the picture from the settings storage change;
+readers accept any value starting with `idb:wallpaper`. A blob left behind
+when the wallpaper becomes a gradient/colour (here, elsewhere, or by sync) is
+deleted by the dashboard.
 
 ## 1. Contract additions (done in the main tree first)
 
@@ -128,6 +136,18 @@ Widgets (each a card in `src/ui/widgets/`, reused by the side panel):
   remaining time while running on the dashboard ("24:59 · Tabitat").
 - **Clock**: locale time (12/24 h from locale), date, greeting
   (morning/afternoon/evening/night by local hour).
+
+Post-review pass (docs/reviews/phase4-triage.md): note drafts live in a
+per-scope module store mirrored to `sessionStorage` (`tabitat:noteDraft:<scope>`)
+so a conflicted draft survives unmount/reload with its notice; todo / quick-link
+writes that fail (retries exhausted, other errors, "list full" on replay) stay
+queued with an inline Retry / Discard row and the add text / form is kept until
+acknowledged; todo checks replay as `setDone(id, desired)`; Customize shows
+Clock and Search as toggles only (reorder applies to grid cards); the backup
+banner is mounted under the top row and hidden while the reminder is off.
+Todos / notes / pomodoro records are read by `src/ui/widgets/records.ts` (not
+the shared store) and the search engine loads right after first paint
+(`src/ui/searchLoader.ts`), both to keep the popup under its budget.
 
 Side panel: adds collapsible **Todos**, **Notes**, **Pomodoro** sections
 below Recently closed (collapsed state remembered in `localStorage` per

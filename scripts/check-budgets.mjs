@@ -83,32 +83,45 @@ export function htmlRefs(html) {
 
 /**
  * Static import specifiers of an ES module (`import "./x.js"`, `import x from "./x.js"`,
- * `export * from "./x.js"`), minified or not. Dynamic `import("./x.js")` is excluded.
+ * `export * from "./x.js"`), minified or not; `?query` / `#hash` suffixes are stripped. Only
+ * statements count: the keyword must start the file or follow `;`, `{`, `}` or a newline, so a
+ * `from "./x.js"` inside a string literal is not an import. Dynamic `import("./x.js")` is
+ * excluded.
  */
 export function staticImports(code) {
   const out = new Set();
-  const re = /(?:\bimport|\bfrom)\s*(["'])([^"'\n]+?\.m?js)\1/g;
-  for (const m of code.matchAll(re)) out.add(m[2]);
+  const re =
+    /(?:^|[;{}\n])\s*(?:import|export)\s*(?:[^;"'`()]*?\bfrom\s*)?(["'])([^"'\n]+?\.m?js(?:[?#][^"'\n]*)?)\1/g;
+  for (const m of code.matchAll(re)) out.add(m[2].split(/[?#]/)[0]);
   return [...out];
 }
 
-/** Files of one surface: entry refs plus their static JS graph. Paths are absolute. */
+/** Local references (relative or root-relative) are ours to resolve; URLs and bare names are not. */
+const isLocalRef = (ref) => /^\.{0,2}\//.test(ref.split(/[?#]/)[0]);
+
+/**
+ * Files of one surface: entry refs plus their static JS graph. Paths are absolute. `unresolved`
+ * lists local references (`from -> ref`, build-relative) that name no file in the build.
+ */
 export function surfaceFiles(root, entry) {
   const entryPath = join(root, entry);
   if (!isFile(entryPath)) return null;
   const js = new Set();
   const css = new Set();
+  const unresolved = [];
   const queue = [];
+  const where = (file) => relative(root, file).split(sep).join("/");
+  const follow = (from, ref, onFile, html = false) => {
+    if (!html && !isLocalRef(ref)) return; // a bare module specifier is not ours
+    const p = resolveRef(root, from, ref);
+    if (p === null) return;
+    if (isFile(p)) onFile(p);
+    else unresolved.push(`${where(from)} -> ${ref}`);
+  };
   if (entry.endsWith(".html")) {
     const refs = htmlRefs(readFileSync(entryPath, "utf8"));
-    for (const r of refs.js) {
-      const p = resolveRef(root, entryPath, r);
-      if (p && isFile(p)) queue.push(p);
-    }
-    for (const r of refs.css) {
-      const p = resolveRef(root, entryPath, r);
-      if (p && isFile(p)) css.add(p);
-    }
+    for (const r of refs.js) follow(entryPath, r, (p) => queue.push(p), true);
+    for (const r of refs.css) follow(entryPath, r, (p) => css.add(p), true);
   } else {
     queue.push(entryPath);
   }
@@ -117,11 +130,12 @@ export function surfaceFiles(root, entry) {
     if (js.has(file)) continue;
     js.add(file);
     for (const spec of staticImports(readFileSync(file, "utf8"))) {
-      const p = resolveRef(root, file, spec);
-      if (p && isFile(p) && !js.has(p)) queue.push(p);
+      follow(file, spec, (p) => {
+        if (!js.has(p)) queue.push(p);
+      });
     }
   }
-  return { js: [...js].sort(), css: [...css].sort() };
+  return { js: [...js].sort(), css: [...css].sort(), unresolved: [...new Set(unresolved)].sort() };
 }
 
 /** Gzip size cache: each file is compressed once. */
@@ -161,7 +175,16 @@ export function measureBudgets(root, budgets = DEFAULT_BUDGETS, surfaces = SURFA
     const budget = budgets.surfaces[name] ?? null;
     const files = surfaceFiles(dir, entry);
     if (!files) {
-      return { surface: name, missing: true, jsGz: 0, cssGz: 0, budget, ok: false, files: [] };
+      return {
+        surface: name,
+        missing: true,
+        jsGz: 0,
+        cssGz: 0,
+        budget,
+        ok: false,
+        unresolved: [],
+        files: [],
+      };
     }
     const jsGz = files.js.reduce((n, f) => n + gz(f), 0);
     const cssGz = files.css.reduce((n, f) => n + gz(f), 0);
@@ -171,7 +194,8 @@ export function measureBudgets(root, budgets = DEFAULT_BUDGETS, surfaces = SURFA
       jsGz,
       cssGz,
       budget,
-      ok: budget === null || jsGz <= budget,
+      ok: files.unresolved.length === 0 && (budget === null || jsGz <= budget),
+      unresolved: files.unresolved,
       files: [...files.js, ...files.css].map((f) => relative(dir, f).split(sep).join("/")),
     };
   });
@@ -195,7 +219,7 @@ export function formatTable(result) {
     r.missing ? "-" : kb(r.jsGz),
     r.missing ? "-" : kb(r.cssGz),
     r.budget === null ? "-" : kb(r.budget),
-    r.missing ? "MISSING" : r.ok ? "ok" : "OVER",
+    r.missing ? "MISSING" : r.unresolved.length > 0 ? "UNRESOLVED" : r.ok ? "ok" : "OVER",
   ]);
   body.push([
     `total JS (${result.total.files} files)`,
@@ -233,6 +257,11 @@ function main(argv) {
   } else {
     console.log(`bundle budgets (gzip) for ${relative(process.cwd(), result.dir) || "."}`);
     console.log(formatTable(result));
+    for (const r of result.surfaces) {
+      for (const u of r.unresolved) {
+        console.error(`unresolved chunk reference in ${r.surface}: ${u} (file not in the build)`);
+      }
+    }
     console.log(result.ok ? "budgets ok" : "budgets FAILED");
   }
   return result.ok ? 0 : 1;

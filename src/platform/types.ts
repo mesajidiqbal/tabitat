@@ -81,6 +81,8 @@ export interface RuntimePort {
   getURL(path: string): string;
   /** Extension id; used for placeholder detection. */
   id: string;
+  /** `chrome.i18n.getMessage`; "" for an unknown key. Absent where there is no i18n. */
+  getMessage?(key: string, subs?: string | string[]): string;
 }
 
 export interface Ports {

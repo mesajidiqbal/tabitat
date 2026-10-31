@@ -1,7 +1,9 @@
 /**
  * Wallpaper presets and the device-local image (docs/PHASE4.md §0 exception): the image blob
  * lives in IndexedDB (`tabitat` / `blobs` / `wallpaper`), never synced or backed up; the setting
- * only says `{ kind: "image", value: "idb:wallpaper" }`. CSS values come from fixed tables or a
+ * only says `{ kind: "image", value: "idb:wallpaper#<ts>" }` (the stamp changes on every
+ * replace, so every open dashboard sees a settings change and reloads the picture; a bare
+ * `idb:wallpaper` from earlier builds is still read). CSS values come from fixed tables or a
  * validated hex colour, and are applied through CSSOM (CSP-safe). The extension CSP has no
  * `blob:` in img-src, so the image is shown as a data: URL (wallpaper-db.ts, loaded on demand).
  */
@@ -10,6 +12,15 @@ import { DEFAULT_SETTINGS, type Settings } from "@/core/model/types";
 export type Wallpaper = Settings["dashboard"]["wallpaper"];
 
 export const IMAGE_VALUE = "idb:wallpaper";
+const STAMP_RE = /^idb:wallpaper#(\d{1,16})$/;
+
+/** Setting value for an image stored at `ts`. */
+export const imageValue = (ts: number): string => `${IMAGE_VALUE}#${Math.trunc(ts)}`;
+/** Any (short) value starting with `idb:wallpaper` names the stored image. */
+export const isImageValue = (v: unknown): v is string =>
+  typeof v === "string" && v.length <= 64 && v.startsWith(IMAGE_VALUE);
+/** The `#<ts>` stamp of an image value ("" without a well-formed one). */
+export const imageStamp = (v: string): string => STAMP_RE.exec(v)?.[1] ?? "";
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export const GRADIENTS: Readonly<Record<string, string>> = {
@@ -43,7 +54,7 @@ export function sanitizeWallpaper(raw: unknown): Wallpaper {
   if (kind === "gradient" && typeof value === "string" && Object.hasOwn(GRADIENTS, value))
     return { kind, value };
   if (kind === "color" && typeof value === "string" && HEX.test(value)) return { kind, value };
-  if (kind === "image" && value === IMAGE_VALUE) return { kind, value };
+  if (kind === "image" && isImageValue(value)) return { kind, value };
   return { ...d };
 }
 
@@ -55,3 +66,10 @@ export function wallpaperBackground(wp: Wallpaper): string {
     : DEFAULT_SETTINGS.dashboard.wallpaper.value;
   return GRADIENTS[name] ?? "";
 }
+
+/**
+ * Orphan check (Gemini review): once settings are loaded, a wallpaper that is not an image means
+ * the stored blob is unused (replaced on this page, from another page or by sync) and can go.
+ */
+export const shouldDropImageBlob = (ready: boolean, wp: Wallpaper): boolean =>
+  ready && !(wp.kind === "image" && isImageValue(wp.value));

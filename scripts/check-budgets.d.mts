@@ -14,6 +14,8 @@ export interface SurfaceRow {
   cssGz: number;
   budget: number | null;
   ok: boolean;
+  /** Local references (`from -> ref`) that name no file in the build. */
+  unresolved: string[];
   files: string[];
 }
 export interface BudgetResult {
@@ -26,7 +28,10 @@ export const DEFAULT_BUDGETS: Budgets;
 export const SURFACES: Surface[];
 export function htmlRefs(html: string): { js: string[]; css: string[] };
 export function staticImports(code: string): string[];
-export function surfaceFiles(root: string, entry: string): { js: string[]; css: string[] } | null;
+export function surfaceFiles(
+  root: string,
+  entry: string,
+): { js: string[]; css: string[]; unresolved: string[] } | null;
 export function gzipSizer(): (file: string) => number;
 export function measureBudgets(
   root: string,

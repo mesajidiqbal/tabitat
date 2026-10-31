@@ -650,6 +650,24 @@
   "exportHtml": {
     "message": "Export HTML"
   },
+  "exportTitle": {
+    "message": "Tabitat export"
+  },
+  "exportHeading": {
+    "message": "Tabitat export"
+  },
+  "exportSessionHeading": {
+    "message": "Tabitat session"
+  },
+  "exportSavedLinks": {
+    "message": "Saved links"
+  },
+  "exportQuickLinks": {
+    "message": "Quick links"
+  },
+  "exportWindow": {
+    "message": "Window"
+  },
   "exportHtmlFor": {
     "message": "Export HTML of the snapshot from $WHEN$",
     "placeholders": {
@@ -1728,5 +1746,67 @@
         "content": "$1"
       }
     }
+  },
+  "dashDiscard": {
+    "message": "Discard"
+  },
+  "dashSaveFailed": {
+    "message": "Not saved: $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashTodoListFull": {
+    "message": "Not added: the list is full ($P1$ tasks).",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashLinksListFull": {
+    "message": "Not added: quick links are full ($P1$).",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "dashTodoKeysHint": {
+    "message": "Space or Enter marks done, F2 edits, Delete removes, Alt+Up or Alt+Down moves."
+  },
+  "dashWallpaperUndecodable": {
+    "message": "This file could not be read as an image. Try a JPEG, PNG or WebP file."
+  },
+  "dashWallpaperSaveFailed": {
+    "message": "The wallpaper could not be saved; the previous one is kept."
+  },
+  "dashWallpaperRemoveFailed": {
+    "message": "The wallpaper setting changed, but the old image could not be deleted."
+  },
+  "dashPomodoroAnnounce": {
+    "message": "$P1$ · round $P2$ of $P3$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      },
+      "p3": {
+        "content": "$3"
+      }
+    }
+  },
+  "dashPomodoroStopped": {
+    "message": "Pomodoro stopped"
+  },
+  "dashTopRow": {
+    "message": "Top row"
+  },
+  "dashCardsOrder": {
+    "message": "Cards (in this order)"
   }
 }

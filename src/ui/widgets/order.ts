@@ -53,3 +53,35 @@ export function moveWidget(enabled: readonly WidgetId[], id: WidgetId, delta: -1
   list.splice(to, 0, id);
   return list;
 }
+
+/**
+ * The Customize panel's two lists (review C-U2): the top-row widgets as plain toggles in their
+ * fixed order, and the grid cards (enabled in order, then the disabled ones) which reorder.
+ */
+export function customizeGroups(enabled: readonly WidgetId[]): {
+  top: Array<{ id: WidgetId; on: boolean }>;
+  cards: Array<{ id: WidgetId; on: boolean }>;
+} {
+  return {
+    top: TOP_ROW.map((id) => ({ id, on: enabled.includes(id) })),
+    cards: customizeList(enabled).filter((x) => !TOP_ROW.includes(x.id)),
+  };
+}
+
+/**
+ * Moves a grid card one place among the enabled grid cards (-1 up, +1 down): it swaps with the
+ * neighbouring card, so top-row ids keep their slots in the stored list. Unchanged at the ends,
+ * for a disabled card or a top-row id.
+ */
+export function moveCard(enabled: readonly WidgetId[], id: WidgetId, delta: -1 | 1): WidgetId[] {
+  const list = [...enabled];
+  const cards = gridWidgets(list);
+  const from = cards.indexOf(id);
+  const other = cards[from + delta];
+  if (from < 0 || other === undefined) return list;
+  const a = list.indexOf(id);
+  const b = list.indexOf(other);
+  list[a] = other;
+  list[b] = id;
+  return list;
+}

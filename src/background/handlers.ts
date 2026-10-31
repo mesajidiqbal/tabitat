@@ -4,7 +4,12 @@
  * (conflict) and bump `rev`; they ack only after storage.local.set resolved.
  */
 import { buildBackup } from "../core/backup";
-import { buildHtmlExport, withSavedLinks } from "../core/export/html";
+import {
+  buildHtmlExport,
+  DEFAULT_EXPORT_LABELS,
+  type ExportLabels,
+  withSavedLinks,
+} from "../core/export/html";
 import { parseSettings } from "../core/model/schemas";
 import type {
   Note,
@@ -35,6 +40,26 @@ import type { Services } from "./services";
 import { TAB_MOVED_MESSAGE } from "./suspender";
 import { removeTabsSafely } from "./tab-utils";
 import { switchLanes } from "./workspace-engine";
+
+/** i18n message keys of the HTML export labels (public/_locales/<lang>/messages.json). */
+export const EXPORT_LABEL_KEYS: Record<keyof ExportLabels, string> = {
+  title: "exportTitle",
+  exportHeading: "exportHeading",
+  sessionHeading: "exportSessionHeading",
+  savedLinks: "exportSavedLinks",
+  quickLinks: "exportQuickLinks",
+  window: "exportWindow",
+};
+
+/** Translated export labels; an empty or missing message keeps the English default. */
+export function exportLabels(runtime: { getMessage?(key: string): string }): ExportLabels {
+  const out: ExportLabels = { ...DEFAULT_EXPORT_LABELS };
+  for (const k of Object.keys(EXPORT_LABEL_KEYS) as Array<keyof ExportLabels>) {
+    const msg = runtime.getMessage?.(EXPORT_LABEL_KEYS[k]);
+    if (typeof msg === "string" && msg.trim() !== "") out[k] = msg;
+  }
+  return out;
+}
 
 function checkRev(current: number, expected: number | undefined, what: string): void {
   if (expected !== undefined && expected !== current) {
@@ -330,7 +355,12 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
       const { data } = buildBackup(await repo.getAll(), now);
       const out = buildHtmlExport(
         { kind: "all", workspaces: withSavedLinks(data.workspaces), quicklinks: data.quicklinks },
-        { now, stripQuery: p.stripQuery === true, placeholderBase: ctx.placeholderBase },
+        {
+          now,
+          stripQuery: p.stripQuery === true,
+          placeholderBase: ctx.placeholderBase,
+          labels: exportLabels(ports.runtime),
+        },
       );
       await stampBackup();
       return out;
@@ -356,6 +386,7 @@ export function registerHandlers(router: CommandRouter, s: Services): void {
           now: ports.now(),
           stripQuery: p.stripQuery === true,
           placeholderBase: ctx.placeholderBase,
+          labels: exportLabels(ports.runtime),
         },
       );
     },

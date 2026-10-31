@@ -125,4 +125,28 @@ describe("BackupBanner", () => {
     (await screen.findByRole("button", { name: "Remind me in a week" })).click();
     expect(await screen.findByRole("alert")).toBeTruthy();
   });
+
+  it("Turn off stays disabled until the settings record is loaded (no rev 0 fallback)", async () => {
+    stubStorage({ "backup:reminder": { dueSince: 1 } });
+    render(<BackupBanner />);
+    const turnOff = (await screen.findByRole("button", { name: "Turn off" })) as HTMLButtonElement;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(turnOff.disabled).toBe(true);
+    turnOff.click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(send).not.toHaveBeenCalled();
+    expect(
+      (screen.getByRole("button", { name: "Remind me in a week" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("is hidden while the reminder is turned off, even with a stale record (C-B6)", async () => {
+    stubStorage({
+      "backup:reminder": { dueSince: 1 },
+      settings: { rev: 3, backupReminderDays: 0 },
+    });
+    const { container } = render(<BackupBanner />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(container.textContent).toBe("");
+  });
 });

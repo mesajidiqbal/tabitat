@@ -111,8 +111,12 @@
   border-radius: var(--radius-sm);
 }
 .todo:hover,
-.todo:focus-visible {
+.todo:has(.todoBox:focus-visible) {
   background: var(--bg-hover);
+}
+.todoBox {
+  flex: none;
+  margin: 0;
 }
 .todo .del {
   visibility: hidden;

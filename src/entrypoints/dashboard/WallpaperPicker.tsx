@@ -1,7 +1,9 @@
 /**
- * Wallpaper choices: 8 gradient presets, 8 colour swatches, "Upload image…" (≤ 5 MB, stored in
- * IndexedDB; the setting only names it) and "Remove image". Every setting write goes through
- * settings.update (dashboardPatch).
+ * Wallpaper choices: 8 gradient presets, 8 colour swatches, "Upload image…" (≤ 5 MB, decoded
+ * first, stored in IndexedDB; the setting only names it) and "Remove image". Every setting write
+ * goes through settings.update (dashboardPatch) and is checked: a failed write leaves the
+ * previous image in place (wallpaper-db.ts). Other dashboards reload the picture from the
+ * setting's new `#<ts>` stamp.
  */
 import { useState } from "preact/hooks";
 import { DEFAULT_SETTINGS } from "@/core/model/types";
@@ -9,10 +11,21 @@ import { t } from "@/i18n";
 import c from "@/ui/components/controls.module.css";
 import s from "./dashboard.module.css";
 import { dashboard, dashboardPatch, updateSettings } from "./settings";
-import { GRADIENTS, IMAGE_VALUE, MAX_IMAGE_BYTES, SWATCHES, type Wallpaper } from "./wallpaper";
-import { deleteImage, saveImage } from "./wallpaper-db";
+import { GRADIENTS, imageValue, MAX_IMAGE_BYTES, SWATCHES, type Wallpaper } from "./wallpaper";
+import { removeImage, replaceImage } from "./wallpaper-db";
 
 const set = (wallpaper: Wallpaper) => updateSettings((cur) => dashboardPatch(cur, { wallpaper }));
+
+/** The file decodes as an image (MIME and size alone accept corrupt data; review C-U4). */
+async function decodes(file: Blob): Promise<boolean> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    bitmap.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function WallpaperPicker() {
   const wp = dashboard.value.wallpaper;
@@ -27,21 +40,25 @@ export function WallpaperPicker() {
     if (file.size > MAX_IMAGE_BYTES) return setError(t("dashWallpaperTooLarge", 5));
     setBusy(true);
     try {
-      await saveImage(file);
-      await set({ kind: "image", value: IMAGE_VALUE });
-      // The setting may already have been "image": tell the page to reload the picture.
-      dispatchEvent(new Event("tabitat:wallpaper"));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!(await decodes(file))) return setError(t("dashWallpaperUndecodable"));
+      const ts = Date.now();
+      const ok = await replaceImage(file, String(ts), () =>
+        set({ kind: "image", value: imageValue(ts) }),
+      );
+      if (!ok) setError(t("dashWallpaperSaveFailed"));
+    } catch {
+      setError(t("dashWallpaperSaveFailed"));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async () => {
+    setError(null);
     setBusy(true);
-    await deleteImage().catch(() => undefined);
-    await set({ ...DEFAULT_SETTINGS.dashboard.wallpaper });
+    const out = await removeImage(() => set({ ...DEFAULT_SETTINGS.dashboard.wallpaper }));
+    if (out === "settings") setError(t("dashWallpaperSaveFailed"));
+    else if (out === "blob") setError(t("dashWallpaperRemoveFailed"));
     setBusy(false);
   };
 

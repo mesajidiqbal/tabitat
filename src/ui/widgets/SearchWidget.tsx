@@ -51,6 +51,8 @@ export function SearchWidget(_: WidgetProps) {
   }, []);
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // IME: keys that pick or confirm a composition belong to the IME, not the search (C-B8).
+    if (e.isComposing) return;
     const k = e.key;
     if (k === "ArrowDown" && open) setSel(effectiveSelection(selected + 1, hits.length));
     else if (k === "ArrowUp" && open) setSel(effectiveSelection(selected - 1, hits.length));

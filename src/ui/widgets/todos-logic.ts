@@ -26,11 +26,15 @@ export function addTodo(items: readonly Todo[], text: string, id: string, now: n
   return renumber([...list, { id, text: clean, done: false, order: list.length, createdAt: now }]);
 }
 
-export function toggleTodo(items: readonly Todo[], id: string, now: number): Todo[] {
+/**
+ * Sets `done` to the value the user chose (idempotent, so replaying it over another surface's
+ * edit converges instead of flipping it back); `doneAt` is kept when already done.
+ */
+export function setDone(items: readonly Todo[], id: string, done: boolean, now: number): Todo[] {
   return renumber(
     sortTodos(items).map((x) => {
-      if (x.id !== id) return x;
-      if (x.done) {
+      if (x.id !== id || x.done === done) return x;
+      if (!done) {
         const { doneAt: _drop, ...rest } = x;
         return { ...rest, done: false };
       }
@@ -38,6 +42,9 @@ export function toggleTodo(items: readonly Todo[], id: string, now: number): Tod
     }),
   );
 }
+
+/** True when an add cannot apply on `items`: the list is at the cap. */
+export const addBlocked = (items: readonly Todo[]): boolean => sortTodos(items).length >= TODO_CAP;
 
 /** Replaces the text; a blank edit removes the item. */
 export function editTodo(items: readonly Todo[], id: string, text: string): Todo[] {

@@ -15,3 +15,5 @@ Load `.output/chrome-mv3` unpacked (chrome://extensions → Developer mode).
 | Q8 | Import a backup in replace mode, then open Trash | previous workspaces present in trash | | | |
 | Q9 | Activate a placeholder in a window hidden behind another | it loads on click if not on focus | | | |
 | Q10 | edge://settings saved on Edge, opened on Chrome via import | listed as skipped, not an empty tab | | | |
+| Q11 | Newtab flavor: open a new tab in two windows that hold different workspaces; in each, switch workspace from the Workspaces card, then drag one new-tab page into the other window | each switch targets the window the new tab lives in (never the other one); the moved page follows its new window's workspace (scope switch, Todos/Notes "workspace" scope) | | | |
+| Q12 | Start a pomodoro on the dashboard, then put the machine to sleep (or hide the tab) past the phase end and wake it | the countdown is right immediately on return (no 1 s ticks while hidden), the phase / round change is announced once (screen reader), and the delayed alarm's notification fires once | | | |

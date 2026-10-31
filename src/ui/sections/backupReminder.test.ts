@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { daysSinceBackup, parseReminder, reminderVisible } from "./backupReminder";
+import {
+  daysSinceBackup,
+  parseBannerSettings,
+  parseReminder,
+  reminderVisible,
+} from "./backupReminder";
 
 const NOW = 1_800_000_000_000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -18,6 +23,14 @@ describe("reminderVisible", () => {
     expect(reminderVisible({ dueSince: NOW - DAY, snoozedUntil: NOW + 1 }, NOW)).toBe(false);
     expect(reminderVisible({ dueSince: NOW - DAY, snoozedUntil: NOW }, NOW)).toBe(true);
     expect(reminderVisible({ dueSince: NOW - DAY, snoozedUntil: NOW - 1 }, NOW)).toBe(true);
+  });
+
+  it("is hidden when the reminder is off, whatever the record says (C-B6)", () => {
+    expect(reminderVisible({ dueSince: NOW - DAY }, NOW, 0)).toBe(false);
+    expect(reminderVisible({ dueSince: NOW - DAY, snoozedUntil: NOW - 1 }, NOW, 0)).toBe(false);
+    expect(reminderVisible({ dueSince: NOW - DAY }, NOW, 30)).toBe(true);
+    // Settings not known yet: the record decides.
+    expect(reminderVisible({ dueSince: NOW - DAY }, NOW, undefined)).toBe(true);
   });
 });
 
@@ -47,5 +60,21 @@ describe("daysSinceBackup", () => {
   it("is null when there was no backup", () => {
     expect(daysSinceBackup(undefined, NOW)).toBeNull();
     expect(daysSinceBackup("x", NOW)).toBeNull();
+  });
+});
+
+describe("parseBannerSettings", () => {
+  it("reads rev and the cadence (default 30)", () => {
+    expect(parseBannerSettings({ rev: 4, backupReminderDays: 0 })).toEqual({
+      rev: 4,
+      backupReminderDays: 0,
+    });
+    expect(parseBannerSettings({ rev: 2 })).toEqual({ rev: 2, backupReminderDays: 30 });
+    expect(parseBannerSettings({ rev: 2, backupReminderDays: -1 })?.backupReminderDays).toBe(30);
+  });
+
+  it("is undefined without a usable rev (no guessed expectedRev)", () => {
+    for (const bad of [undefined, null, [], {}, { rev: "1" }, { rev: -1 }, { rev: 1.5 }])
+      expect(parseBannerSettings(bad)).toBeUndefined();
   });
 });

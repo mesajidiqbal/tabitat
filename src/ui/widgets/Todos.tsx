@@ -3,7 +3,7 @@
  * (drag or Alt+↑↓), "Clear done"; cap 500 per list. Writes `todo.set` (whole list, expectedRev),
  * rapid edits coalesced over 250 ms (useSyncedRecord).
  */
-import { useState } from "preact/hooks";
+import { useId, useRef, useState } from "preact/hooks";
 import { newId } from "@/core/model/id";
 import { Keys, type Scope, type Todo } from "@/core/model/types";
 import { plural, t } from "@/i18n";
@@ -11,20 +11,20 @@ import { send } from "@/messaging/client";
 import c from "../components/controls.module.css";
 import { EmptyState } from "../components/EmptyState";
 import { useRoving } from "../hooks/useRoving";
-import { sanitizeTodoList } from "../sanitize";
-import { store } from "../store";
-import { Card, ScopeSwitch, Skeleton, useScope, type WidgetProps } from "./Card";
+import { Card, SaveError, ScopeSwitch, Skeleton, useScope, type WidgetProps } from "./Card";
+import { records, sanitizeTodoList } from "./records";
 import { TodoRow } from "./TodoRow";
 import {
+  addBlocked,
   addTodo,
   clearDone,
   editTodo,
   moveTodo,
   moveTodoTo,
   removeTodo,
+  setDone,
   sortTodos,
   TODO_CAP,
-  toggleTodo,
 } from "./todos-logic";
 import { useSyncedRecord } from "./useSyncedRecord";
 import s from "./widgets.module.css";
@@ -34,7 +34,7 @@ const COALESCE_MS = 250;
 
 export function Todos({ compact }: WidgetProps) {
   const sc = useScope();
-  const loaded = sc.scope in store.todos.value;
+  const loaded = sc.scope in records.todos.value;
   return (
     <Card
       id="todos"
@@ -48,7 +48,7 @@ export function Todos({ compact }: WidgetProps) {
 }
 
 function TodoList({ scope }: { scope: Scope }) {
-  const stored = store.todos.value[scope] ?? EMPTY;
+  const stored = records.todos.value[scope] ?? EMPTY;
   const rec = useSyncedRecord<Todo[]>({
     stored: { value: stored.items, rev: stored.rev },
     write: (items, expectedRev) =>
@@ -61,9 +61,17 @@ function TodoList({ scope }: { scope: Scope }) {
     delay: COALESCE_MS,
   });
   const items = sortTodos(rec.value);
-  const [text, setText] = useState("");
+  const [text, setTextState] = useState("");
+  const textRef = useRef("");
+  const setText = (v: string) => {
+    textRef.current = v;
+    setTextState(v);
+  };
+  /** The add waiting for its acknowledgement (a repeated Enter does not add it twice). */
+  const adding = useRef<string | null>(null);
   const [drag, setDrag] = useState<{ id: string; over: string | null } | null>(null);
   const roving = useRoving(items.length);
+  const hintId = useId();
   const full = items.length >= TODO_CAP;
   const doneCount = items.filter((x) => x.done).length;
   const refocus = (i: number) => setTimeout(() => roving.focusAt(i));
@@ -72,10 +80,20 @@ function TodoList({ scope }: { scope: Scope }) {
     if (e.key !== "Enter" || e.isComposing) return;
     e.preventDefault();
     const value = (e.currentTarget as HTMLInputElement).value;
-    if (value.trim() === "" || full) return;
+    if (value.trim() === "" || full || adding.current === value) return;
     const [id, now] = [newId(), Date.now()];
-    rec.apply((v) => addTodo(v, value, id, now));
-    setText("");
+    adding.current = value;
+    // The text stays in the box until the worker has the item (C-B2): a failed or "list full"
+    // add keeps it for another try.
+    void rec
+      .apply((v) => addTodo(v, value, id, now), {
+        immediate: true,
+        check: (v) => (addBlocked(v) ? t("dashTodoListFull", TODO_CAP) : null),
+      })
+      .then((written) => {
+        if (adding.current === value) adding.current = null;
+        if (written && textRef.current === value) setText("");
+      });
   };
 
   return (
@@ -91,6 +109,10 @@ function TodoList({ scope }: { scope: Scope }) {
         onInput={(e) => setText(e.currentTarget.value)}
         onKeyDown={onAddKey}
       />
+      <SaveError text={rec.error} onRetry={rec.retry} onDiscard={rec.discard} />
+      <p id={hintId} class="sr-only">
+        {t("dashTodoKeysHint")}
+      </p>
       {items.length === 0 ? (
         <EmptyState title={t("dashTodoEmpty")} hint={t("dashTodoEmptyHint")} />
       ) : (
@@ -100,17 +122,18 @@ function TodoList({ scope }: { scope: Scope }) {
               key={todo.id}
               todo={todo}
               item={roving.item(i)}
-              onToggle={() => {
+              hintId={hintId}
+              onToggle={(done) => {
                 const now = Date.now();
-                rec.apply((v) => toggleTodo(v, todo.id, now));
+                void rec.apply((v) => setDone(v, todo.id, done, now));
               }}
-              onEdit={(value) => rec.apply((v) => editTodo(v, todo.id, value))}
+              onEdit={(value) => void rec.apply((v) => editTodo(v, todo.id, value))}
               onDelete={() => {
-                rec.apply((v) => removeTodo(v, todo.id));
+                void rec.apply((v) => removeTodo(v, todo.id));
                 refocus(Math.min(i, items.length - 2));
               }}
               onMove={(delta) => {
-                rec.apply((v) => moveTodo(v, todo.id, delta));
+                void rec.apply((v) => moveTodo(v, todo.id, delta));
                 refocus(i + delta);
               }}
               drag={{
@@ -119,7 +142,7 @@ function TodoList({ scope }: { scope: Scope }) {
                 onOver: () => drag && drag.over !== todo.id && setDrag({ ...drag, over: todo.id }),
                 onDrop: () => {
                   const from = drag?.id;
-                  if (from && from !== todo.id) rec.apply((v) => moveTodoTo(v, from, todo.id));
+                  if (from && from !== todo.id) void rec.apply((v) => moveTodoTo(v, from, todo.id));
                   setDrag(null);
                 },
                 onEnd: () => setDrag(null),
@@ -133,7 +156,11 @@ function TodoList({ scope }: { scope: Scope }) {
           <span class={`${s.muted} ${s.grow}`}>
             {plural(items.length - doneCount, "dashTodoLeftOne", "dashTodoLeftMany")}
           </span>
-          <button type="button" class={`${c.btn} ${c.ghost}`} onClick={() => rec.apply(clearDone)}>
+          <button
+            type="button"
+            class={`${c.btn} ${c.ghost}`}
+            onClick={() => void rec.apply(clearDone)}
+          >
             {t("dashTodoClearDone")}
           </button>
         </div>

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_WIDGETS,
+  customizeGroups,
   customizeList,
   enabledWidgets,
   gridWidgets,
+  moveCard,
   moveWidget,
   toggleWidget,
 } from "./order";
@@ -48,5 +50,41 @@ describe("widget order helpers", () => {
     expect(moveWidget(["clock", "todos"], "clock", -1)).toEqual(["clock", "todos"]);
     expect(moveWidget(["clock", "todos"], "todos", 1)).toEqual(["clock", "todos"]);
     expect(moveWidget(["clock"], "notes", 1)).toEqual(["clock"]);
+  });
+
+  it("customizeGroups: top row as fixed toggles, cards enabled-first (C-U2)", () => {
+    const g = customizeGroups(["notes", "search", "todos"]);
+    expect(g.top).toEqual([
+      { id: "clock", on: false },
+      { id: "search", on: true },
+    ]);
+    expect(g.cards.slice(0, 2)).toEqual([
+      { id: "notes", on: true },
+      { id: "todos", on: true },
+    ]);
+    expect(g.cards.every((x) => x.id !== "clock" && x.id !== "search")).toBe(true);
+    expect(g.cards.slice(2).every((x) => !x.on)).toBe(true);
+  });
+
+  it("moveCard swaps grid neighbours and leaves the top row in place", () => {
+    const list = ["clock", "notes", "search", "todos", "pomodoro"] as const;
+    expect(moveCard([...list], "todos", -1)).toEqual([
+      "clock",
+      "todos",
+      "search",
+      "notes",
+      "pomodoro",
+    ]);
+    expect(moveCard([...list], "notes", 1)).toEqual([
+      "clock",
+      "todos",
+      "search",
+      "notes",
+      "pomodoro",
+    ]);
+    expect(moveCard([...list], "notes", -1)).toEqual([...list]);
+    expect(moveCard([...list], "pomodoro", 1)).toEqual([...list]);
+    expect(moveCard([...list], "clock", 1)).toEqual([...list]);
+    expect(moveCard([...list], "quicklinks", 1)).toEqual([...list]);
   });
 });

@@ -3,6 +3,7 @@ import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import type { Scope } from "@/core/model/types";
 import { t } from "@/i18n";
+import c from "../components/controls.module.css";
 import { activeMeta } from "../store";
 import s from "./widgets.module.css";
 
@@ -79,6 +80,22 @@ export function ScopeSwitch(p: {
         onClick={() => p.setMode("workspace")}
       >
         {p.wsName}
+      </button>
+    </div>
+  );
+}
+
+/** Inline "not saved" row of a widget (useSyncedRecord error): Retry or Discard the edits. */
+export function SaveError(p: { text: string | null; onRetry: () => void; onDiscard: () => void }) {
+  if (p.text === null) return null;
+  return (
+    <div class={s.notice} role="alert" data-testid="save-error">
+      <span>{p.text}</span>
+      <button type="button" class={c.btn} onClick={p.onRetry}>
+        {t("retry")}
+      </button>
+      <button type="button" class={c.btn} onClick={p.onDiscard}>
+        {t("dashDiscard")}
       </button>
     </div>
   );

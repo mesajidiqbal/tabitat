@@ -49,6 +49,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/*
+ * Scrim behind the top row over an image or colour wallpaper (Gemini review): a blurred, nearly
+ * opaque surface from the theme tokens keeps muted text >= 4.5:1 whatever the picture (90 % of
+ * --bg-elev over pure black / white still clears 4.5:1 for --fg-muted in both themes). Solid
+ * where backdrop-filter is not supported.
+ */
+.scrim {
+  padding: var(--sp-3);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .scrim {
+    background: color-mix(in srgb, var(--bg-elev) 90%, transparent);
+    backdrop-filter: blur(14px) saturate(1.2);
+  }
+}
 .searchSkeleton {
   height: 40px;
   border-radius: var(--radius);
@@ -59,6 +76,11 @@
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
   gap: var(--sp-5);
   align-items: start;
+}
+/* Cards keep at least the skeleton's height, so a card replacing its skeleton never shrinks the
+   row (review C-P3; CLS is measured in Phase 5). */
+.grid > [data-widget] {
+  min-height: 220px;
 }
 .empty {
   padding: var(--sp-5);
@@ -108,6 +130,12 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+.subhead {
+  margin: var(--sp-2) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--fs-sm);
+  font-weight: 500;
 }
 .widgetList {
   display: grid;

@@ -7,16 +7,16 @@ import type { Scope } from "@/core/model/types";
 import { t } from "@/i18n";
 import c from "../components/controls.module.css";
 import { EmptyState } from "../components/EmptyState";
-import { store } from "../store";
 import { Card, ScopeSwitch, Skeleton, useScope, type WidgetProps } from "./Card";
 import { MarkdownView } from "./MarkdownView";
+import { records } from "./records";
 import { useNoteDraft } from "./useNoteDraft";
 import s from "./widgets.module.css";
 
 export function Notes({ compact }: WidgetProps) {
   const sc = useScope();
   const [preview, setPreview] = useState(false);
-  const loaded = sc.scope in store.notes.value;
+  const loaded = sc.scope in records.notes.value;
   return (
     <Card
       id="notes"

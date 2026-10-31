@@ -160,6 +160,8 @@ const NEVER = new Promise<never>(() => {});
 export class FakeBrowser {
   readonly extensionId = "fakeextensionid";
   clock = 1_800_000_000_000;
+  /** `chrome.i18n` messages by key; unknown keys give "" like the real API. */
+  readonly messages = new Map<string, string>();
   /** Worker generation; bumped by killWorker(). */
   private gen = 0;
   private nextTab = 100;
@@ -735,6 +737,7 @@ export class FakeBrowser {
       runtime: {
         id: this.extensionId,
         getURL: (path) => `chrome-extension://${this.extensionId}/${path.replace(/^\//, "")}`,
+        getMessage: (key) => this.messages.get(key) ?? "",
       },
       now: () => this.clock,
       newId: () => `id-${++this.idSeq}`,

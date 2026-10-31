@@ -5,7 +5,7 @@
  * (or run during init, before any command).
  */
 import type { BackupReminder, ReminderDecision } from "../core/backup/reminder";
-import { reminderDecision, snoozeReminder } from "../core/backup/reminder";
+import { isBackupDue, reminderDecision, snoozeReminder } from "../core/backup/reminder";
 import type { Meta, Settings } from "../core/model/types";
 import { Keys } from "../core/model/types";
 import type { BgContext } from "./context";
@@ -30,10 +30,24 @@ export async function evaluateBackupReminder(
   return d.action;
 }
 
-/** `reminder.snooze`: keeps `dueSince`, sets `snoozedUntil = now + days`. */
+/**
+ * `reminder.snooze`: keeps `dueSince`, sets `snoozedUntil = now + days`. A queued snooze can
+ * arrive after the reminder was turned off (or a backup made it not due): with the reminder off
+ * any record is removed, and when it is not currently due nothing is written (an existing
+ * record is left to the regular evaluation).
+ */
 export async function snoozeBackupReminder(ctx: BgContext, days: number): Promise<void> {
-  const record = snoozeReminder(await readBackupReminder(ctx), days, ctx.ports.now());
-  await ctx.repo.setMany({ [BgKeys.backupReminder]: record });
+  const { repo, ports } = ctx;
+  const settings = await repo.getSettings();
+  const record = await readBackupReminder(ctx);
+  if (settings.backupReminderDays <= 0) {
+    if (record) await repo.remove(BgKeys.backupReminder);
+    return;
+  }
+  const meta = await repo.getMeta();
+  const now = ports.now();
+  if (meta === null || !isBackupDue(meta, settings.backupReminderDays, now)) return;
+  await repo.setMany({ [BgKeys.backupReminder]: snoozeReminder(record, days, now) });
 }
 
 /**
@@ -47,7 +61,5 @@ export async function recordBackup(ctx: BgContext): Promise<void> {
     const next: Meta = { ...meta, lastBackupAt: Math.max(1, Math.floor(ports.now())) };
     await repo.setMany({ [Keys.meta]: next });
   }
-  if ((await repo.store.get(BgKeys.backupReminder)) !== undefined) {
-    await repo.remove(BgKeys.backupReminder);
-  }
+  await repo.remove(BgKeys.backupReminder);
 }
