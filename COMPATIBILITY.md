@@ -54,7 +54,7 @@ says **verify**.
 
 ## How to report a compatibility issue
 
-Open an issue at `<repo-url>/issues` and include:
+Open an issue at `https://github.com/mesajidiqbal/tabitat/issues` and include:
 
 1. Browser name and exact version (the About page: `chrome://version`, `brave://version`,
    `edge://version`, ...), operating system and version.

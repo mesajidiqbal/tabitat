@@ -4,8 +4,8 @@
 
 Please do not open a public issue for a security problem. Report it privately in one of two ways:
 
-- GitHub private vulnerability reporting: `<repo-url>/security/advisories/new`
-- Email: `<maintainer email>` with the subject "Tabitat security"
+- GitHub private vulnerability reporting: `https://github.com/mesajidiqbal/tabitat/security/advisories/new`
+- Email: `mesajidiqbal@gmail.com` with the subject "Tabitat security"
 
 Include the Tabitat version and flavor (Options, About), the browser and version, what you did,
 what you expected and what happened, and if you can, a minimal reproduction. Please do not include

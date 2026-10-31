@@ -25,9 +25,10 @@ Update it at the end of every phase (and at any forced pause).
   Chrome, budgets green (popup 34.8 KB, onboarding 10.6 KB, total 125.6 KB
   gz JS).
 - **Customer actions before v1.0.0** (`docs/RELEASE.md` §1–7, `docs/PHASE5.md`
-  §8): choose repository name/org and set `REPO_URL` + placeholders
-  (`<repo-url>`, `<maintainer email>`, `<chrome-web-store-url>`; the
-  release workflow fails while any remain); run `docs/MANUAL-QA.md`
+  §8): repository is `https://github.com/mesajidiqbal/tabitat`
+  (chosen 2026-10-31; placeholders, `REPO_URL`, contact
+  `mesajidiqbal@gmail.com` filled; the store link is added after
+  approval); create it on GitHub (not done); run `docs/MANUAL-QA.md`
   Q1–Q17 on Chrome plus Brave or Edge and record the local e2e run; push
   `main` and the `phase-*` tags; tag `v1.0.0` (release workflow builds the
   zips); create the Web Store listing from `store/README.md` (data usage:

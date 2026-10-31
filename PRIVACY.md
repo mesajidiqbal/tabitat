@@ -107,5 +107,5 @@ windows and never records them.
 
 ## Contact
 
-Questions about this policy: `<maintainer email>`. Security problems: see [SECURITY.md](SECURITY.md).
+Questions about this policy: `mesajidiqbal@gmail.com`. Security problems: see [SECURITY.md](SECURITY.md).
 Changes to this policy are listed in [CHANGELOG.md](CHANGELOG.md) with the new "Last updated" date.

@@ -16,8 +16,8 @@ from the demo dataset in `tests/assets/demo-data.json` (no network; see
 | Name | Tabitat (the New Tab listing: Tabitat New Tab) |
 | Category | Productivity |
 | Language | English (en) |
-| Homepage URL | the `REPO_URL` in `src/ui/options/about.ts` (also the manifest `homepage_url`) |
-| Support URL | the repository's issues page |
+| Homepage URL | `https://github.com/mesajidiqbal/tabitat` (the `REPO_URL` in `src/ui/options/about.ts`, also the manifest `homepage_url`) |
+| Support URL | `https://github.com/mesajidiqbal/tabitat/issues` |
 
 **Summary** (132 characters max; this one is 117):
 
@@ -101,7 +101,7 @@ allowed.
 - **Certifications** (keep all three): I do not sell or transfer user data to third parties; I do not use or
   transfer user data for purposes unrelated to the single purpose; I do not use or transfer user
   data to determine creditworthiness or for lending.
-- **Privacy policy URL**: the published `PRIVACY.md` (repository link).
+- **Privacy policy URL**: `https://github.com/mesajidiqbal/tabitat/blob/main/PRIVACY.md` (the published `PRIVACY.md`).
 
 These answers describe the code as built; a person should confirm them against the final build
 and Google's current questionnaire wording before submitting.

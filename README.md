@@ -53,10 +53,10 @@ a switch; they stay with the window.
 
 ## Install
 
-**Chrome Web Store:** [Tabitat](<chrome-web-store-url>) (coming soon).
+**Chrome Web Store:** coming soon (the listing is submitted after the 1.0.0 release; this line gets the link once it is approved).
 
 **From a release zip**
-1. Download `tabitat-<version>.zip` from the [Releases](<repo-url>/releases) page and unzip it.
+1. Download `tabitat-<version>.zip` from the [Releases](https://github.com/mesajidiqbal/tabitat/releases) page and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode**.
 3. Choose **Load unpacked** and select the unzipped folder.
 

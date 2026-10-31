@@ -92,5 +92,5 @@ Onboarding, accessibility, i18n, release
   [COMPATIBILITY.md](COMPATIBILITY.md).
 - No translations other than English yet.
 
-[Unreleased]: <repo-url>/compare/v1.0.0...HEAD
-[1.0.0]: <repo-url>/releases/tag/v1.0.0
+[Unreleased]: https://github.com/mesajidiqbal/tabitat/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/mesajidiqbal/tabitat/releases/tag/v1.0.0

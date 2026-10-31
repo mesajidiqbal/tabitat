@@ -1,5 +1,5 @@
 /**
- * Source-code link shown on the About page. Single constant: Phase 5 sets the final repository
- * URL here (until then it points at the GitHub homepage).
+ * Source-code link shown on the About page and used as the manifest `homepage_url`. Single
+ * constant: change it here if the repository moves.
  */
-export const REPO_URL = "https://github.com/";
+export const REPO_URL = "https://github.com/mesajidiqbal/tabitat";
