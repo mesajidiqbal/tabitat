@@ -152,6 +152,8 @@ export interface Commands {
    * = every `corrupt:*` key. Any other key is rejected. Returns how many keys were removed.
    */
   "system.purgeCorrupt": { in: { keys?: string[] }; out: number };
+  /** Marks the onboarding tour as done (`meta.onboardedAt`), Phase 5. */
+  "system.onboarded": { in: Record<string, never>; out: null };
   "system.ping": {
     in: Record<string, never>;
     /** `degraded`: init failed (read-only mode, retried on the next message); `error` says why. */

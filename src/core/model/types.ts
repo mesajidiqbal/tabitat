@@ -222,6 +222,8 @@ export interface Meta {
   flavor: Flavor;
   /** Last JSON/HTML backup produced through a worker command (Phase 4 reminder). */
   lastBackupAt?: number;
+  /** Set when the onboarding tour was completed or dismissed (Phase 5). */
+  onboardedAt?: number;
 }
 
 /** Export/import file format. */

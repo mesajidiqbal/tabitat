@@ -383,6 +383,7 @@ export const MetaSchema = v.object({
   installedAt: Timestamp,
   flavor: v.picklist(["default", "newtab"]),
   lastBackupAt: v.optional(PosInt),
+  onboardedAt: v.optional(PosInt),
 });
 
 export const BackupFileSchema = v.object({

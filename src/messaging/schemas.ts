@@ -141,5 +141,6 @@ export const PayloadSchemas = {
       ),
     ),
   }),
+  "system.onboarded": Empty,
   "system.ping": Empty,
 } satisfies Record<CommandType, v.GenericSchema>;
