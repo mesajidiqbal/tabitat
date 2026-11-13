@@ -34,6 +34,13 @@ Update it at the end of every phase (and at any forced pause).
   zips); create the Web Store listing from `store/README.md` (data usage:
   Web history, handled locally; popup/side panel screenshots are 2×
   captures, the store accepts only 1280×800 or 640×400).
+- Git identity (2026-11-13): commits under `~/Developer/personal` use
+  `Sajid Iqbal <mesajidiqbal@gmail.com>` via `includeIf` in `~/.gitconfig`;
+  github.com remotes in that folder are routed to the `github-personal`
+  SSH alias (`~/.ssh/id_ed25519_personal`, add its public key to the
+  mesajidiqbal account). All local history was rewritten to that identity
+  before the first push. Remote to add once the repository exists:
+  `git remote add origin git@github.com:mesajidiqbal/tabitat.git`.
 - Known gaps carried (post-1.0 candidates): manual QA not yet run;
   Edge/Vivaldi/Opera/Arc untested; e2e not run in CI (installed Chrome);
   pointer clicks on todo / quick-link tile buttons do not update the
